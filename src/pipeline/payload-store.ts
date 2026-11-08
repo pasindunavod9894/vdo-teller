@@ -9,6 +9,8 @@ import { pipelineMode, STEPS, type StepKey } from './steps'
 import { videoBudgetFor } from './video-budget'
 import { buildMediaCtx } from './media-setup'
 import { dailyCapUsd, DAY_MS } from './scheduler'
+import { episodeCeilingUsd } from './budget'
+import { pickResume } from './resume'
 
 export class PipelineError extends Error {
   constructor(message: string, public status = 400) { super(message) }
@@ -79,7 +81,7 @@ function buildProfile(series: Series, cast: Character[]): SeriesProfile {
 }
 
 /** Runs the whole episode and records every step so the dashboard can show live progress. Never throws. */
-export async function executeEpisode(payload: Payload, episodeId: string | number, delayMs = 900): Promise<RunOutcome> {
+export async function executeEpisode(payload: Payload, episodeId: string | number, delayMs = 900, opts: { scheduled?: boolean } = {}): Promise<RunOutcome> {
   try {
     const episode = await payload.findByID({ collection: 'episodes', id: episodeId, depth: 0, overrideAccess: true })
     const seriesId = idOf(episode.series)
@@ -129,7 +131,12 @@ export async function executeEpisode(payload: Payload, episodeId: string | numbe
     const profile = buildProfile(series, cast)
     const media = await buildMediaCtx(payload, { episodeId, seriesId, cast, tier: series.qualityTier, aspect: series.aspect })
     // with real media the work itself takes time, so the simulated delay is only for the fixture-only run
-    return await runEpisode({ profile, seriesId, mode, delayMs: mode === 'mock' && !media ? delayMs : 0, video: videoBudgetFor(series, profile.durationTargetSec), ...(media ? { media } : {}) }, store, past.map((e) => e.title ?? '').filter(Boolean))
+    const ctx = {
+      profile, seriesId, mode, delayMs: mode === 'mock' && !media ? delayMs : 0, video: videoBudgetFor(series, profile.durationTargetSec),
+      episodeCeilingUsd: episodeCeilingUsd(series.qualityTier, profile.durationTargetSec), scheduled: opts.scheduled === true,
+      ...(media ? { media } : {}),
+    }
+    return await runEpisode(ctx, store, past.map((e) => e.title ?? '').filter(Boolean), pickResume(past))
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Unknown error'
     console.error('[pipeline] run failed:', message)

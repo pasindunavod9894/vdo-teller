@@ -31,7 +31,7 @@ export type ClipRequest = {
   retries?: number
 }
 
-export type ClipResult = { file: string; seconds: number; costUsd: number; model: VideoModelId; remoteUrl: string; requestId?: string; mock?: boolean }
+export type ClipResult = { file: string; seconds: number; costUsd: number; model: VideoModelId; remoteUrl: string; requestId?: string; mock?: boolean; /** served from the series library: no money was spent */ cached?: boolean }
 
 const MAX_PROMPT = 500
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

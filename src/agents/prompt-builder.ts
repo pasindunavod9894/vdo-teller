@@ -5,7 +5,8 @@ import { stylePrompt } from '@/lib/styles/prompts'
  * Builds an agent's prompt in a fixed, cache-friendly order (plan §3b):
  *   1. static block        (same for every series)       -> `system`
  *   2. series profile block (same for every episode)      -> `system`, after the static block
- *   3. episode block        (changes every run)           -> `user`
+ *   3. agent role + voice rule (differs per agent)        -> `system`, last, so agents share the longest possible prefix
+ *   4. episode block        (changes every run)           -> `user`
  * Keep volatile data (ids, timestamps, episode text) OUT of the first two blocks so OpenAI can cache them.
  */
 
@@ -93,11 +94,13 @@ export type BuiltPrompt = { system: string; user: string; cacheKey: string }
 
 export function buildPrompt(agent: AgentName, profile: SeriesProfile, episode: Record<string, unknown> | string, seriesId: string | number): BuiltPrompt {
   const voiceRule = VOICE_RULES[profile.voiceMode][agent]
+  // Order matters for prompt caching, which matches from the start of the prompt: the parts every agent of a series shares
+  // (rules, then the series profile) come first, and the parts that differ per agent come last.
   const system = [
     RULES,
+    `Series profile:\n${renderProfile(profile)}`,
     ROLES[agent],
     voiceRule ? `Voice-mode rule: ${voiceRule}` : '',
-    `Series profile:\n${renderProfile(profile)}`,
   ].filter(Boolean).join('\n\n')
   const body = typeof episode === 'string' ? episode : JSON.stringify(episode)
   return { system, user: `<episode>${body}</episode>`, cacheKey: `series-${seriesId}` }

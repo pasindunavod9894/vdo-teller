@@ -26,6 +26,7 @@ export const Episodes: CollectionConfig = {
     },
     { name: 'idea', type: 'json' },
     { name: 'script', type: 'json' },
+    { name: 'critique', type: 'json', admin: { description: 'The Critic\'s last verdict; an approved script is reused if a later step fails and the episode is retried.' } },
     { name: 'shots', type: 'json' },
     { name: 'timeline', type: 'json' },
     { name: 'audio', type: 'json' },

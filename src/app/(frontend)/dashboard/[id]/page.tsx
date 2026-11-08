@@ -6,6 +6,8 @@ import { CastPanel } from '@/components/dashboard/cast-panel'
 import { AutoToggle } from '@/components/dashboard/auto-toggle'
 import { DashHeader } from '@/components/dashboard/header'
 import { Hero } from '@/components/dashboard/hero'
+import { CostPanel } from '@/components/dashboard/cost-panel'
+import { episodeCeilingUsd } from '@/pipeline/budget'
 import { LibraryGrid } from '@/components/dashboard/library-grid'
 import { ThemeBootstrap } from '@/components/dashboard/theme-bootstrap'
 import { STYLE_CATALOGUE } from '@/lib/styles/catalogue'
@@ -36,6 +38,13 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
     payload.find({ collection: 'characters', where: { series: { equals: series.id } }, user, overrideAccess: false, depth: 1 }),
     payload.find({ collection: 'episodes', where: { series: { equals: series.id } }, sort: '-createdAt', user, overrideAccess: false, limit: 12, depth: 0 }),
   ])
+
+  // where the latest episode's money went
+  const latest = episodes[0]
+  const { docs: latestSteps } = latest
+    ? await payload.find({ collection: 'pipeline-steps', where: { episode: { equals: latest.id } }, sort: 'order', limit: 20, depth: 0, user, overrideAccess: false })
+    : { docs: [] }
+  const ceiling = episodeCeilingUsd(series.qualityTier, { 'story-reel': 45, 'quick-reel': 25, 'long-form': 180 }[series.format] ?? 45)
 
   const hasTheme = isTheme(series.theme)
   const theme = isTheme(series.theme) ? series.theme : heuristicTheme(`${series.niche} ${series.subNiche ?? ''}`, series.style)
@@ -103,6 +112,14 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
             }))}
           />
           {episodeCount === 0 && <p className="mt-3 text-sm text-muted-foreground">Your videos will appear here and play in this library.</p>}
+        </section>
+
+        <section aria-labelledby="costs">
+          <h2 id="costs" className="mb-4 text-2xl font-semibold">Costs</h2>
+          <CostPanel
+            title={latest?.title || 'Latest episode'} ceilingUsd={ceiling}
+            steps={latestSteps.map((s) => ({ agent: s.label || s.agent, model: s.model, inputTokens: s.inputTokens, cachedTokens: s.cachedTokens, outputTokens: s.outputTokens, imageCount: s.imageCount, videoSeconds: s.videoSeconds, costUsd: s.costUsd }))}
+          />
         </section>
 
         <section aria-labelledby="cast">

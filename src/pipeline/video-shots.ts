@@ -48,9 +48,10 @@ export async function produceVideoShots(opts: ProduceOptions): Promise<ProduceRe
     if (!s.motionPrompt) { clips.push({ ...base, status: 'failed', error: 'No motion prompt' }); fallback.push(s.n); continue }
     try {
       const r = await make({ model: opts.model, imageFile: still, prompt: s.motionPrompt, seconds: s.videoSeconds, destFile: path.join(opts.workDir, `shot-${s.n}.mp4`) })
-      left -= r.seconds
+      // mock and library (cached) clips are free: they must not use up the real-video seconds
+      if (!r.mock && !r.cached) left -= r.seconds
       totalCost += r.costUsd
-      totalSec += r.mock ? 0 : r.seconds // mock clips are free: they must not count against the real-video seconds
+      totalSec += r.mock || r.cached ? 0 : r.seconds
       clips.push({ ...base, seconds: r.seconds, costUsd: r.costUsd, status: r.mock ? 'mock' : 'generated', file: r.file })
     } catch (e) {
       const msg = e instanceof VideoError ? `${e.kind}: ${e.message}` : (e as Error).message

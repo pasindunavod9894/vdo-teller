@@ -308,6 +308,18 @@ export interface Episode {
     | number
     | boolean
     | null;
+  /**
+   * The Critic's last verdict; an approved script is reused if a later step fails and the episode is retried.
+   */
+  critique?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   shots?:
     | {
         [k: string]: unknown;
@@ -640,6 +652,7 @@ export interface EpisodesSelect<T extends boolean = true> {
   status?: T;
   idea?: T;
   script?: T;
+  critique?: T;
   shots?: T;
   timeline?: T;
   audio?: T;

@@ -4,7 +4,8 @@ import OpenAI from 'openai'
 import { zodTextFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
 import { tokenCostUsd } from '../agents/models'
-import { IMAGE_COST } from '../lib/art/plan'
+import sharp from 'sharp'
+import { IMAGE_COST, type Quality } from '../lib/art/plan'
 import { probeDuration } from '../providers/video/fal'
 import { transcribeWords } from '../engine/transcribe'
 import type { MediaServices, SpeechSpec } from './types'
@@ -27,7 +28,8 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export function createOpenAIMedia(opts: { assetsDir: string; libraryDir: string; client?: OpenAI; gateModel?: string }): MediaServices {
+export function createOpenAIMedia(opts: { assetsDir: string; libraryDir: string; client?: OpenAI; gateModel?: string; /** image quality follows the tier: draft quality is far cheaper (plan §3b) */ quality?: Quality }): MediaServices {
+  const quality: Quality = opts.quality ?? 'medium'
   const client = opts.client ?? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const gateModel = opts.gateModel ?? process.env.OPENAI_MODEL_GATE ?? 'gpt-5-mini'
   return {
@@ -38,12 +40,12 @@ export function createOpenAIMedia(opts: { assetsDir: string; libraryDir: string;
       const name = `plate-${safeName(key)}.png`
       const lib = path.join(opts.libraryDir, name)
       if (fs.existsSync(lib)) { fs.copyFileSync(lib, path.join(opts.assetsDir, name)); return { file: name, costUsd: 0, cached: true } }
-      const r = await withRetry(`plate ${key}`, () => client.images.generate({ model: 'gpt-image-2', prompt, size: '1024x1536', quality: 'medium', n: 1 }))
+      const r = await withRetry(`plate ${key}`, () => client.images.generate({ model: 'gpt-image-2', prompt, size: '1024x1536', quality, n: 1 }))
       const b64 = r.data?.[0]?.b64_json
       if (!b64) throw new Error(`plate ${key}: the image service returned nothing`)
       fs.writeFileSync(lib, Buffer.from(b64, 'base64'))
       fs.copyFileSync(lib, path.join(opts.assetsDir, name))
-      return { file: name, costUsd: IMAGE_COST.medium, cached: false }
+      return { file: name, costUsd: IMAGE_COST[quality], cached: false }
     },
 
     async speech(spec: SpeechSpec) {
@@ -52,6 +54,9 @@ export function createOpenAIMedia(opts: { assetsDir: string; libraryDir: string;
       const dest = path.join(opts.assetsDir, name)
       const wordsFile = `${dest}.words.json`
       let newSpend = 0
+      // a line that was already made for this series (an earlier attempt or episode) comes back from the library for free
+      const lib = path.join(opts.libraryDir, name)
+      if (!fs.existsSync(dest) && fs.existsSync(lib) && fs.existsSync(`${lib}.words.json`)) { fs.copyFileSync(lib, dest); fs.copyFileSync(`${lib}.words.json`, wordsFile) }
       if (!fs.existsSync(dest)) {
         const r = await withRetry(`speech ${spec.name}`, () => client.audio.speech.create({ model: 'gpt-4o-mini-tts', voice: spec.voice, input: spec.text, instructions: spec.instructions, response_format: 'wav' }))
         fs.writeFileSync(dest, Buffer.from(await r.arrayBuffer()))
@@ -62,12 +67,14 @@ export function createOpenAIMedia(opts: { assetsDir: string; libraryDir: string;
         fs.writeFileSync(wordsFile, JSON.stringify(words))
         newSpend = (seconds / 60) * (SPEECH_USD_PER_MIN + WHISPER_USD_PER_MIN)
       }
+      if (!fs.existsSync(lib)) { fs.copyFileSync(dest, lib); fs.copyFileSync(wordsFile, `${lib}.words.json`) }
       return { file: name, seconds, words: JSON.parse(fs.readFileSync(wordsFile, 'utf8')), costUsd: Math.round(newSpend * 10000) / 10000 }
     },
 
     async gate(file, rules) {
-      const buf = fs.readFileSync(file)
-      const mime = file.toLowerCase().endsWith('.jpg') ? 'image/jpeg' : 'image/png'
+      // a small JPEG is all a quick check needs: a fraction of the upload, and the vision cost is the same low-detail price
+      const buf = await sharp(fs.readFileSync(file)).resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 70 }).toBuffer()
+      const mime = 'image/jpeg'
       const res = await withRetry('quality check', () => client.responses.parse({
         model: gateModel, reasoning: { effort: 'minimal' },
         instructions: 'You check generated images for an animation studio. Judge ONLY against the rules you are given. Be strict about the listed problems and ignore everything else.',

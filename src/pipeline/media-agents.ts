@@ -10,12 +10,14 @@ import { ensureMusic, moodFor } from '../engine/music'
 import { rmsPerFrame } from '../engine/lipsync'
 import { normalizeLoudness, videoSeconds } from '../engine/finish'
 import { compositeScene } from '../media/scene-still'
+import { withClipCache } from '../media/clip-cache'
+import { makeClip } from '../providers/video'
+import { IMAGE_COST, QUALITY_FOR_TIER } from '../lib/art/plan'
 import { hashOf } from '../media/workspace'
 import { chromePath, type MediaCtx } from './media-ctx'
 
 /** Plates per episode: a handful of backgrounds reused across the shots keeps image cost low and the look consistent. */
 export const PLATES_PER_EPISODE = 3
-const PLATE_USD = 0.05
 const GATE_USD = 0.01
 const GATE_RULES = 'One intact character on a background. No extra limbs, no distorted or merged face, no stray text, watermarks or logos, and the character is clearly visible and fully inside the frame.'
 
@@ -28,6 +30,7 @@ export async function artDirectorMedia(ctx: Ctx, m: MediaCtx, shots: ShotList): 
   const look = ctx.profile.style.promptTemplate
   let cost = 0
   let images = 0
+  const plateUsd = IMAGE_COST[QUALITY_FOR_TIER[ctx.profile.qualityTier]]
   const notes: string[] = []
 
   // 1. background plates (no characters: the engine places those)
@@ -37,7 +40,7 @@ export async function artDirectorMedia(ctx: Ctx, m: MediaCtx, shots: ShotList): 
     const first = list.find((_, i) => groupOf(i) === g)
     if (!first) continue
     const prompt = scrubText(`${look}. An empty background scene for a "${ctx.profile.niche}" story, with no characters, no people, no animals, no text and no logos: ${first.description}. Portrait composition with open space in the lower middle.`)
-    if (ctx.canSpend && !(await ctx.canSpend(PLATE_USD))) {
+    if (ctx.canSpend && !(await ctx.canSpend(plateUsd))) {
       if (!plateFiles.length) throw new Error('Cost cap reached.')
       plateFiles[g] = plateFiles[g - 1]
       notes.push(`plate ${g + 1} reused (cost cap)`)
@@ -111,7 +114,7 @@ export async function animatorMedia(ctx: Ctx, m: MediaCtx, script: Script, shots
   if (videoShots.length) {
     const r = await produceVideoShots({
       model: ctx.video.model, shots: videoShots.map((s) => ({ n: s.n, videoSeconds: s.videoSeconds, motionPrompt: s.motionPrompt })),
-      workDir: m.ws.clipsDir, allowanceSec: ctx.video.allowanceSec,
+      workDir: m.ws.clipsDir, allowanceSec: ctx.video.allowanceSec, make: withClipCache(m.ws.libraryDir, makeClip),
       stillFor: (n) => (m.state.stills[n] ? path.join(assetsDir, m.state.stills[n]) : null),
     })
     videoClips = r.clips

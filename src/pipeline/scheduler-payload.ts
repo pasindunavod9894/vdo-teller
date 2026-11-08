@@ -27,7 +27,7 @@ export function payloadSchedulerDeps(payload: Payload): SchedulerDeps {
       const { episodeId } = await startEpisode(payload, user, series.id)
       return { episodeId }
     },
-    execute: (episodeId) => executeEpisode(payload, episodeId),
+    execute: (episodeId) => executeEpisode(payload, episodeId, 900, { scheduled: true }),
   }
 }
 

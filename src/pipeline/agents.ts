@@ -1,6 +1,6 @@
 import { Agent, run } from '@openai/agents'
 import type { z } from 'zod'
-import { MODELS, REASONING, tokenCostUsd, type AgentModelKey } from '@/agents/models'
+import { flexEnabled, MAX_OUTPUT_TOKENS, MODELS, REASONING, tokenCostUsd, type AgentModelKey } from '@/agents/models'
 import { buildPrompt } from '@/agents/prompt-builder'
 import type { AgentName, SeriesProfile } from '@/agents/profile'
 import {
@@ -11,6 +11,7 @@ import { scrubDeep, cleanHashtags } from './brand-safety'
 import { plannedVideoCostUsd, planVideoShots, videoCostUsd, type VideoModelId } from '../lib/video'
 import { APPROVE_SCORE, type PipelineMode } from './steps'
 import type { MediaCtx } from './media-ctx'
+import { mergeScriptPatch, ScriptPatchSchema } from './script-patch'
 import { animatorMedia, artDirectorMedia, editorQaMedia } from './media-agents'
 
 export type Usage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; costUsd: number; videoSeconds?: number; /** new images made (cache hits are not counted) */ images?: number }
@@ -28,6 +29,10 @@ export type Ctx = {
   media?: MediaCtx
   /** set by the Orchestrator: true while `usd` more can be spent under the series cost cap */
   canSpend?: (usd: number) => Promise<boolean>
+  /** a scheduled (non-interactive) run: may use the cheaper flex tier when OPENAI_FLEX=1 */
+  scheduled?: boolean
+  /** the most this one episode may cost, in USD (see budget.ts) */
+  episodeCeilingUsd?: number
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -41,19 +46,35 @@ async function runTextAgent<S extends z.ZodType>(
 ): Promise<{ output: z.infer<S>; usage: Usage }> {
   const p = buildPrompt(agent, ctx.profile, episode, ctx.seriesId)
   const model = MODELS[modelKey]
-  // The SDK's generics don't accept a generic zod schema here; the schema is validated by the SDK at runtime.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const a = new Agent<unknown, any>({
-    name: agent, model, instructions: p.system, outputType: schema,
-    modelSettings: { reasoning: { effort: REASONING[modelKey] }, text: { verbosity: 'low' }, providerData: { prompt_cache_key: p.cacheKey } },
-  })
-  const res = await run(a, p.user)
+  const attempt = async (flex: boolean) => {
+    // The SDK's generics don't accept a generic zod schema here; the schema is validated by the SDK at runtime.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const a = new Agent<unknown, any>({
+      name: agent, model, instructions: p.system, outputType: schema,
+      modelSettings: {
+        reasoning: { effort: REASONING[modelKey] }, text: { verbosity: 'low' }, maxTokens: MAX_OUTPUT_TOKENS[modelKey],
+        providerData: { prompt_cache_key: p.cacheKey, ...(flex ? { service_tier: 'flex' } : {}) },
+      },
+    })
+    return run(a, p.user)
+  }
+  // Flex is about half price but can be briefly unavailable: then the same call is made once at the normal price.
+  let flex = flexEnabled() && ctx.scheduled === true
+  let res
+  try {
+    res = await attempt(flex)
+  } catch (e) {
+    const status = (e as { status?: number }).status
+    if (!flex || !(status === 429 || /resource.*unavailable|flex/i.test((e as Error).message))) throw e
+    flex = false
+    res = await attempt(false)
+  }
   if (res.finalOutput == null) throw new Error(`${agent} returned no structured output`)
   const u = res.state.usage
   const cachedTokens = (u.inputTokensDetails as unknown as { cached_tokens?: number }[] | undefined)?.reduce((s, d) => s + (d?.cached_tokens ?? 0), 0) ?? 0
   const reasoningTokens = (u.outputTokensDetails as unknown as { reasoning_tokens?: number }[] | undefined)?.reduce((s, d) => s + (d?.reasoning_tokens ?? 0), 0) ?? 0
   const usage = { model, inputTokens: u.inputTokens, cachedTokens, outputTokens: u.outputTokens, reasoningTokens, costUsd: 0 }
-  usage.costUsd = tokenCostUsd(model, usage)
+  usage.costUsd = tokenCostUsd(model, usage, { flex })
   return { output: res.finalOutput as z.infer<S>, usage }
 }
 
@@ -79,9 +100,16 @@ export async function showrunner(ctx: Ctx, previousTitles: string[]): Promise<Ag
 // ---------- Writer ----------
 export async function writer(ctx: Ctx, idea: Idea, notes: string[], previous: Script | null): Promise<AgentResult<Script>> {
   if (ctx.mode === 'text') {
-    const raw = await runTextAgent('writer', 'writer', ScriptSchema, ctx, {
-      idea, targetSeconds: ctx.profile.durationTargetSec, ...(notes.length ? { criticNotes: notes, previousScript: previous } : {}),
-    })
+    // A revision returns only the beats that changed; the Orchestrator merges them (plan §3b).
+    if (notes.length && previous) {
+      const raw = await runTextAgent('writer', 'writer', ScriptPatchSchema, ctx, {
+        idea, targetSeconds: ctx.profile.durationTargetSec, criticNotes: notes, previousScript: previous,
+        instruction: 'Return ONLY the beats you changed or added (each complete, with its beat number "n") and any new title, hook or payoff; use null / an empty list for everything you keep.',
+      })
+      const output = scrubDeep(mergeScriptPatch(previous, raw.output))
+      return { output, usage: raw.usage, summary: `${output.beats.length} beats · revised ${raw.output.beats.length} beat(s) from ${notes.length} notes` }
+    }
+    const raw = await runTextAgent('writer', 'writer', ScriptSchema, ctx, { idea, targetSeconds: ctx.profile.durationTargetSec })
     const output = scrubDeep(raw.output)
     return { output, usage: raw.usage, summary: `${output.beats.length} beats · "${output.title}"` }
   }

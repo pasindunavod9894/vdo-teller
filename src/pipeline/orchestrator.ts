@@ -1,7 +1,7 @@
 import * as agents from './agents'
 import type { AgentResult, Ctx, Usage } from './agents'
 import type { Critique, Idea, Script } from './schemas'
-import { MAX_REVISION_ROUNDS, type StepKey } from './steps'
+import { APPROVE_SCORE, MAX_REVISION_ROUNDS, type StepKey } from './steps'
 import { videoCostUsd } from '../lib/video'
 import { platformMetas } from './publish-meta'
 
@@ -22,16 +22,21 @@ export type Store = {
 
 export type RunOutcome = { status: 'done' | 'needs-review' | 'failed'; reason?: string; costUsd: number }
 
-export async function runEpisode(baseCtx: Ctx, store: Store, previousTitles: string[]): Promise<RunOutcome> {
-  // agents may ask whether more money can be spent before each paid call
-  const ctx: Ctx = { ...baseCtx, canSpend: baseCtx.canSpend ?? ((usd) => store.budgetOk(usd)) }
+/** Finished text steps of an earlier attempt that failed later (for example in the render): they are reused, not paid for again. */
+export type Resume = { idea: Idea; script: Script }
+
+export async function runEpisode(baseCtx: Ctx, store: Store, previousTitles: string[], resume: Resume | null = null): Promise<RunOutcome> {
   let cost = 0
+  // Agents ask before each paid call. Two limits apply: the series cost cap and this episode's own ceiling (plan §3b).
+  const ceiling = baseCtx.episodeCeilingUsd ?? Infinity
+  const ctx: Ctx = { ...baseCtx, canSpend: async (usd) => cost + usd <= ceiling && (await (baseCtx.canSpend ?? ((u: number) => store.budgetOk(u)))(usd)) }
   let downgradedVideo = false
   let current: StepKey = 'orchestrator-plan'
 
   // Runs one agent as a step: marks it running, saves its result, accumulates cost.
   async function step<T>(key: StepKey, note: string | undefined, fn: () => Promise<AgentResult<T>>): Promise<T> {
     current = key
+    if (cost >= ceiling) throw new BudgetError('Episode cost ceiling reached.')
     if (!(await store.budgetOk(ctx.mode === 'text' ? 0.05 : 0))) throw new BudgetError()
     await store.stepStart(key, note)
     const r = await fn()
@@ -46,19 +51,34 @@ export async function runEpisode(baseCtx: Ctx, store: Store, previousTitles: str
       summary: `Plan: ${ctx.profile.format}, ${ctx.profile.durationTargetSec}s, voice: ${ctx.profile.voiceMode}, mode: ${ctx.mode}`,
     }))
 
-    const idea: Idea = await step('showrunner', undefined, () => agents.showrunner(ctx, previousTitles))
-    await store.episodePatch({ title: idea.title, idea })
-
-    // Writer <-> Critic loop, routed through the Orchestrator, capped (plan §3b).
+    let idea: Idea
     let script: Script | null = null
     let critique: Critique | null = null
-    let notes: string[] = []
-    for (let round = 1; round <= MAX_REVISION_ROUNDS; round++) {
-      script = await step('writer', round > 1 ? `Round ${round}: revising from the Critic's notes` : undefined, () => agents.writer(ctx, idea, notes, script))
-      await store.episodePatch({ script })
-      critique = await step('critic', undefined, () => agents.critic(ctx, script as Script, round))
-      if (critique.approved) break
-      notes = critique.notes
+    if (resume) {
+      // Reuse the approved idea and script of the failed attempt: nothing is generated or paid for again.
+      idea = resume.idea
+      script = resume.script
+      critique = { score: APPROVE_SCORE, approved: true, notes: [], originalityRisk: false, policyRisk: false }
+      for (const key of ['showrunner', 'writer', 'critic'] as const) {
+        await store.stepStart(key, 'Reused from the earlier attempt')
+        await store.stepDone(key, { summary: key === 'showrunner' ? `Idea: "${idea.title}" (reused)` : key === 'writer' ? `${script.beats.length} beats (reused)` : 'Approved earlier (reused)' })
+      }
+      await store.episodePatch({ title: idea.title, idea, script, critique })
+    } else {
+      idea = await step('showrunner', undefined, () => agents.showrunner(ctx, previousTitles))
+      await store.episodePatch({ title: idea.title, idea })
+
+      // Writer <-> Critic loop, routed through the Orchestrator, capped (plan §3b).
+      let notes: string[] = []
+      for (let round = 1; round <= MAX_REVISION_ROUNDS; round++) {
+        script = await step('writer', round > 1 ? `Round ${round}: revising from the Critic's notes` : undefined, () => agents.writer(ctx, idea, notes, script))
+        await store.episodePatch({ script })
+        critique = await step('critic', undefined, () => agents.critic(ctx, script as Script, round))
+        if (critique.approved) break
+        notes = critique.notes
+      }
+      // kept so a later attempt can reuse the approved script
+      if (critique) await store.episodePatch({ critique })
     }
     if (!script || !critique) throw new Error('No script was produced')
     if (critique.policyRisk || critique.originalityRisk) {
@@ -73,7 +93,7 @@ export async function runEpisode(baseCtx: Ctx, store: Store, previousTitles: str
     // Budget guard for real video: if the planned clips no longer fit under the cost cap, those shots fall back to the
     // free engine instead of overspending (plan §12). The episode carries on.
     const plannedUsd = shots.shots.reduce((n, s) => n + (s.render === 'video' ? videoCostUsd(ctx.video.model, s.videoSeconds) : 0), 0)
-    if (plannedUsd > 0 && !(await store.budgetOk(plannedUsd))) {
+    if (plannedUsd > 0 && (cost + plannedUsd > ceiling || !(await store.budgetOk(plannedUsd)))) {
       shots = { shots: shots.shots.map((s) => ({ ...s, render: 'engine' as const, videoSeconds: 0, motionPrompt: null })) }
       downgradedVideo = true
     }
@@ -102,7 +122,7 @@ export async function runEpisode(baseCtx: Ctx, store: Store, previousTitles: str
     await store.episodePatch({ status: 'done', files: { publish: { ...publish, platforms: platformMetas(publish) }, ...(master ? { master } : { mockRender: true }) }, costUsd: cost, videoCostUsd: videoUsd })
     return { status: 'done', costUsd: cost }
   } catch (e) {
-    const message = e instanceof BudgetError ? 'Cost cap reached.' : e instanceof Error ? e.message : 'Unknown error'
+    const message = e instanceof Error ? e.message : 'Unknown error'
     await store.stepFail(current, message).catch(() => {})
     const status = e instanceof BudgetError ? 'needs-review' : 'failed'
     await store.episodePatch({ status, error: message, costUsd: cost }).catch(() => {})
@@ -110,4 +130,6 @@ export async function runEpisode(baseCtx: Ctx, store: Store, previousTitles: str
   }
 }
 
-class BudgetError extends Error {}
+class BudgetError extends Error {
+  constructor(message = 'Cost cap reached.') { super(message) }
+}
