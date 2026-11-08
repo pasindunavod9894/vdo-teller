@@ -69,6 +69,10 @@ export interface Config {
   collections: {
     users: User;
     media: Media;
+    series: Series;
+    characters: Character;
+    episodes: Episode;
+    'pipeline-steps': PipelineStep;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -78,13 +82,17 @@ export interface Config {
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
+    series: SeriesSelect<false> | SeriesSelect<true>;
+    characters: CharactersSelect<false> | CharactersSelect<true>;
+    episodes: EpisodesSelect<false> | EpisodesSelect<true>;
+    'pipeline-steps': PipelineStepsSelect<false> | PipelineStepsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
     'payload-migrations': PayloadMigrationsSelect<false> | PayloadMigrationsSelect<true>;
   };
   db: {
-    defaultIDType: string;
+    defaultIDType: number;
   };
   fallbackLocale: null;
   globals: {};
@@ -101,20 +109,18 @@ export interface Config {
 }
 export interface UserAuthOperations {
   forgotPassword: {
-    email: string;
-    password: string;
+    username: string;
   };
   login: {
-    email: string;
     password: string;
+    username: string;
   };
   registerFirstUser: {
-    email: string;
     password: string;
+    username: string;
   };
   unlock: {
-    email: string;
-    password: string;
+    username: string;
   };
 }
 /**
@@ -122,10 +128,12 @@ export interface UserAuthOperations {
  * via the `definition` "users".
  */
 export interface User {
-  id: string;
+  id: number;
+  role: 'user' | 'admin';
   updatedAt: string;
   createdAt: string;
-  email: string;
+  email?: string | null;
+  username: string;
   resetPasswordToken?: string | null;
   resetPasswordExpiration?: string | null;
   salt?: string | null;
@@ -148,7 +156,7 @@ export interface User {
  * via the `definition` "media".
  */
 export interface Media {
-  id: string;
+  id: number;
   alt: string;
   updatedAt: string;
   createdAt: string;
@@ -164,10 +172,201 @@ export interface Media {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "series".
+ */
+export interface Series {
+  id: number;
+  owner: number | User;
+  title: string;
+  niche: string;
+  subNiche?: string | null;
+  style: string;
+  styleApplicability?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  format: 'story-reel' | 'quick-reel' | 'long-form';
+  voiceMode: 'none' | 'narrator' | 'character_voices' | 'narrator_and_characters';
+  voiceApplicability?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  narratorVoice?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  frequency: 'daily' | 'every-2-days' | '3-per-week' | 'weekly';
+  qualityTier: 'budget' | 'standard' | 'premium';
+  aspect: '9:16' | '16:9' | '1:1' | '4:5';
+  theme?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  folderLinked?: boolean | null;
+  status: 'draft' | 'active' | 'paused' | 'removed';
+  costCapUsd?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "characters".
+ */
+export interface Character {
+  id: number;
+  owner: number | User;
+  series: number | Series;
+  name: string;
+  role?: string | null;
+  /**
+   * Look, outfit, personality, setting
+   */
+  bible?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * ~150-token description used in prompts
+   */
+  canonicalDescription?: string | null;
+  voiceProfile?: {
+    voice?: string | null;
+    pace?: string | null;
+    pitch?: string | null;
+    accent?: string | null;
+    instructions?: string | null;
+  };
+  referenceImages?: (number | Media)[] | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "episodes".
+ */
+export interface Episode {
+  id: number;
+  owner: number | User;
+  series: number | Series;
+  title?: string | null;
+  status: 'queued' | 'running' | 'needs-review' | 'done' | 'failed';
+  idea?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  script?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  shots?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  timeline?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  audio?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * master + exports (R2 keys / local file names)
+   */
+  files?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  costUsd?: number | null;
+  scheduledFor?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "pipeline-steps".
+ */
+export interface PipelineStep {
+  id: number;
+  owner: number | User;
+  episode: number | Episode;
+  agent: string;
+  status: 'pending' | 'running' | 'done' | 'failed';
+  startedAt?: string | null;
+  endedAt?: string | null;
+  summary?: string | null;
+  inputHash?: string | null;
+  model?: string | null;
+  inputTokens?: number | null;
+  cachedTokens?: number | null;
+  outputTokens?: number | null;
+  reasoningTokens?: number | null;
+  imageCount?: number | null;
+  costUsd?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
-  id: string;
+  id: number;
   key: string;
   data:
     | {
@@ -184,20 +383,36 @@ export interface PayloadKv {
  * via the `definition` "payload-locked-documents".
  */
 export interface PayloadLockedDocument {
-  id: string;
+  id: number;
   document?:
     | ({
         relationTo: 'users';
-        value: string | User;
+        value: number | User;
       } | null)
     | ({
         relationTo: 'media';
-        value: string | Media;
+        value: number | Media;
+      } | null)
+    | ({
+        relationTo: 'series';
+        value: number | Series;
+      } | null)
+    | ({
+        relationTo: 'characters';
+        value: number | Character;
+      } | null)
+    | ({
+        relationTo: 'episodes';
+        value: number | Episode;
+      } | null)
+    | ({
+        relationTo: 'pipeline-steps';
+        value: number | PipelineStep;
       } | null);
   globalSlug?: string | null;
   user: {
     relationTo: 'users';
-    value: string | User;
+    value: number | User;
   };
   updatedAt: string;
   createdAt: string;
@@ -207,10 +422,10 @@ export interface PayloadLockedDocument {
  * via the `definition` "payload-preferences".
  */
 export interface PayloadPreference {
-  id: string;
+  id: number;
   user: {
     relationTo: 'users';
-    value: string | User;
+    value: number | User;
   };
   key?: string | null;
   value?:
@@ -230,7 +445,7 @@ export interface PayloadPreference {
  * via the `definition` "payload-migrations".
  */
 export interface PayloadMigration {
-  id: string;
+  id: number;
   name?: string | null;
   batch?: number | null;
   updatedAt: string;
@@ -241,9 +456,11 @@ export interface PayloadMigration {
  * via the `definition` "users_select".
  */
 export interface UsersSelect<T extends boolean = true> {
+  role?: T;
   updatedAt?: T;
   createdAt?: T;
   email?: T;
+  username?: T;
   resetPasswordToken?: T;
   resetPasswordExpiration?: T;
   salt?: T;
@@ -276,6 +493,98 @@ export interface MediaSelect<T extends boolean = true> {
   height?: T;
   focalX?: T;
   focalY?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "series_select".
+ */
+export interface SeriesSelect<T extends boolean = true> {
+  owner?: T;
+  title?: T;
+  niche?: T;
+  subNiche?: T;
+  style?: T;
+  styleApplicability?: T;
+  format?: T;
+  voiceMode?: T;
+  voiceApplicability?: T;
+  narratorVoice?: T;
+  frequency?: T;
+  qualityTier?: T;
+  aspect?: T;
+  theme?: T;
+  folderLinked?: T;
+  status?: T;
+  costCapUsd?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "characters_select".
+ */
+export interface CharactersSelect<T extends boolean = true> {
+  owner?: T;
+  series?: T;
+  name?: T;
+  role?: T;
+  bible?: T;
+  canonicalDescription?: T;
+  voiceProfile?:
+    | T
+    | {
+        voice?: T;
+        pace?: T;
+        pitch?: T;
+        accent?: T;
+        instructions?: T;
+      };
+  referenceImages?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "episodes_select".
+ */
+export interface EpisodesSelect<T extends boolean = true> {
+  owner?: T;
+  series?: T;
+  title?: T;
+  status?: T;
+  idea?: T;
+  script?: T;
+  shots?: T;
+  timeline?: T;
+  audio?: T;
+  files?: T;
+  costUsd?: T;
+  scheduledFor?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "pipeline-steps_select".
+ */
+export interface PipelineStepsSelect<T extends boolean = true> {
+  owner?: T;
+  episode?: T;
+  agent?: T;
+  status?: T;
+  startedAt?: T;
+  endedAt?: T;
+  summary?: T;
+  inputHash?: T;
+  model?: T;
+  inputTokens?: T;
+  cachedTokens?: T;
+  outputTokens?: T;
+  reasoningTokens?: T;
+  imageCount?: T;
+  costUsd?: T;
+  updatedAt?: T;
+  createdAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
