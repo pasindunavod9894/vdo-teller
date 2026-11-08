@@ -74,6 +74,7 @@ export interface Config {
     episodes: Episode;
     'pipeline-steps': PipelineStep;
     'niche-research-cache': NicheResearchCache;
+    'asset-packs': AssetPack;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -88,6 +89,7 @@ export interface Config {
     episodes: EpisodesSelect<false> | EpisodesSelect<true>;
     'pipeline-steps': PipelineStepsSelect<false> | PipelineStepsSelect<true>;
     'niche-research-cache': NicheResearchCacheSelect<false> | NicheResearchCacheSelect<true>;
+    'asset-packs': AssetPacksSelect<false> | AssetPacksSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -227,6 +229,7 @@ export interface Series {
   folderLinked?: boolean | null;
   status: 'draft' | 'active' | 'paused' | 'removed';
   costCapUsd?: number | null;
+  spentUsd?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -385,6 +388,25 @@ export interface NicheResearchCache {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "asset-packs".
+ */
+export interface AssetPack {
+  id: number;
+  owner: number | User;
+  character: number | Character;
+  items?:
+    | {
+        kind: 'pose' | 'emotion' | 'mouth';
+        name: string;
+        image: number | Media;
+        id?: string | null;
+      }[]
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -434,6 +456,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'niche-research-cache';
         value: number | NicheResearchCache;
+      } | null)
+    | ({
+        relationTo: 'asset-packs';
+        value: number | AssetPack;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -542,6 +568,7 @@ export interface SeriesSelect<T extends boolean = true> {
   folderLinked?: T;
   status?: T;
   costCapUsd?: T;
+  spentUsd?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -620,6 +647,24 @@ export interface NicheResearchCacheSelect<T extends boolean = true> {
   key?: T;
   data?: T;
   expiresAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "asset-packs_select".
+ */
+export interface AssetPacksSelect<T extends boolean = true> {
+  owner?: T;
+  character?: T;
+  items?:
+    | T
+    | {
+        kind?: T;
+        name?: T;
+        image?: T;
+        id?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
 }

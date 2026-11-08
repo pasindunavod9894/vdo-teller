@@ -37,5 +37,6 @@ export const Series: CollectionConfig = {
     { name: 'folderLinked', type: 'checkbox', defaultValue: false },
     { name: 'status', type: 'select', options: ['draft', 'active', 'paused', 'removed'], defaultValue: 'draft', required: true },
     { name: 'costCapUsd', type: 'number', defaultValue: 5 },
+    { name: 'spentUsd', type: 'number', defaultValue: 0, admin: { readOnly: true } },
   ],
 }

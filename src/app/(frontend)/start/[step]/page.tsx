@@ -1,7 +1,7 @@
 'use client'
 import { use, useEffect } from 'react'
 import { notFound, useRouter } from 'next/navigation'
-import { useWizard } from '@/lib/wizard/store'
+import { useWizard, useWizardHydrated } from '@/lib/wizard/store'
 import { STEPS } from '@/components/wizard/steps'
 import { StepFooter } from '@/components/wizard/step-footer'
 import { OptionCard } from '@/components/wizard/option-card'
@@ -9,6 +9,8 @@ import { FREQUENCIES, QUALITIES } from '@/lib/wizard/mock-data'
 import { useOptions, useSubNiches } from '@/lib/research/client'
 import { Researching, SourceBadge } from '@/components/wizard/research-status'
 import { cn } from '@/lib/utils'
+import { VoicePicker } from '@/components/wizard/voice-picker'
+import { defaultVoiceFor } from '@/lib/voices'
 
 const TITLES: Record<string, { h: string; p: string }> = {
   'sub-niche': { h: 'Pick a sub-niche', p: 'Ranked by popularity and how well it can earn on Facebook and YouTube.' },
@@ -24,14 +26,28 @@ export default function StepPage({ params }: { params: Promise<{ step: string }>
   const { step } = use(params)
   const router = useRouter()
   const w = useWizard()
+  const hydrated = useWizardHydrated()
   const valid = STEPS.some((s) => s.slug === step)
   const isSub = step === 'sub-niche'
   const needsOptions = ['style', 'format', 'characters', 'voice', 'frequency'].includes(step)
   const subs = useSubNiches(valid && isSub, w.niche)
   const opts = useOptions(valid && needsOptions, w.niche, w.subNiche)
-  useEffect(() => { if (valid && !w.niche) router.replace('/start') }, [valid, w.niche, router])
+  useEffect(() => { if (hydrated && valid && !w.niche) router.replace('/start') }, [hydrated, valid, w.niche, router])
+  // Persist the default voices that the pickers display, so what the user sees is what gets saved.
+  useEffect(() => {
+    if (step !== 'voice') return
+    const { voiceMode, characters, narrator } = useWizard.getState()
+    const speaking = voiceMode === 'character_voices' || voiceMode === 'narrator_and_characters'
+    const narrates = voiceMode === 'narrator' || voiceMode === 'narrator_and_characters'
+    const patch: Partial<{ characters: typeof characters; narrator: typeof narrator }> = {}
+    if (speaking && characters.some((c) => !c.voice)) {
+      patch.characters = characters.map((c, i) => (c.voice ? c : { ...c, voice: { voice: defaultVoiceFor(i), instructions: '' } }))
+    }
+    if (narrates && !narrator) patch.narrator = { voice: 'fable', instructions: 'Warm storyteller' }
+    if (patch.characters || patch.narrator) useWizard.getState().set(patch)
+  }, [step, w.voiceMode, w.characters, w.narrator])
   if (!valid) notFound()
-  if (!w.niche) return null
+  if (!hydrated || !w.niche) return null
 
   const t = TITLES[step]
   const research = isSub ? subs : needsOptions ? opts : null
@@ -101,7 +117,7 @@ export default function StepPage({ params }: { params: Promise<{ step: string }>
             const on = w.characters.some((x) => x.id === c.id)
             return (
               <OptionCard key={c.id} selected={on} title={c.name} subtitle={c.look} badge={c.role} badgeTone="muted"
-                onClick={() => w.set({ characters: on ? w.characters.filter((x) => x.id !== c.id) : [...w.characters, c] })}>
+                onClick={() => { const cur = useWizard.getState().characters; w.set({ characters: cur.some((x) => x.id === c.id) ? cur.filter((x) => x.id !== c.id) : [...cur, c] }) }}>
                 <div className="text-xs text-muted-foreground">{c.personality}</div>
               </OptionCard>
             )
@@ -114,15 +130,34 @@ export default function StepPage({ params }: { params: Promise<{ step: string }>
       </div>
     )
   } else if (step === 'voice') {
+    const speaking = w.voiceMode === 'character_voices' || w.voiceMode === 'narrator_and_characters'
+    const narrates = w.voiceMode === 'narrator' || w.voiceMode === 'narrator_and_characters'
     canContinue = !!w.voiceMode
     body = (
-      <div className="grid gap-4 sm:grid-cols-2">
-        {(opts.data?.voices ?? []).map((v) => (
-          <OptionCard key={v.id} selected={w.voiceMode === v.id} onClick={() => w.set({ voiceMode: v.id })} dim={v.status === 'not_suitable'}
-            title={v.name} subtitle={v.blurb} badge={v.status === 'recommended' ? 'Recommended' : v.status === 'suitable' ? 'Suitable' : 'Weak fit'} badgeTone={v.status === 'recommended' ? 'accent' : 'muted'}>
-            <div className="text-xs text-muted-foreground">{v.why}</div>
-          </OptionCard>
-        ))}
+      <div className="space-y-8">
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(opts.data?.voices ?? []).map((v) => (
+            <OptionCard key={v.id} selected={w.voiceMode === v.id} onClick={() => w.set({ voiceMode: v.id })} dim={v.status === 'not_suitable'}
+              title={v.name} subtitle={v.blurb} badge={v.status === 'recommended' ? 'Recommended' : v.status === 'suitable' ? 'Suitable' : 'Weak fit'} badgeTone={v.status === 'recommended' ? 'accent' : 'muted'}>
+              <div className="text-xs text-muted-foreground">{v.why}</div>
+            </OptionCard>
+          ))}
+        </div>
+        {(narrates || speaking) && (
+          <div>
+            <h2 className="mb-3 text-lg font-semibold">Pick each voice</h2>
+            <p className="mb-4 text-sm text-muted-foreground">Each voice stays the same in every episode. Press Preview to listen.</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {narrates && (
+                <VoicePicker title="Narrator" subtitle="Tells the story" value={w.narrator ?? { voice: 'fable', instructions: 'Warm storyteller' }} onChange={(v) => w.set({ narrator: v })} />
+              )}
+              {speaking && w.characters.map((c, i) => (
+                <VoicePicker key={c.id} title={c.name} subtitle={c.role} value={c.voice ?? { voice: defaultVoiceFor(i), instructions: '' }}
+                  onChange={(v) => w.set({ characters: useWizard.getState().characters.map((x) => (x.id === c.id ? { ...x, voice: v } : x)) })} />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     )
   } else if (step === 'frequency') {
@@ -191,7 +226,7 @@ function CustomCharacter() {
         const name = String(f.get('name') || '').trim()
         const look = String(f.get('look') || '').trim()
         if (!name) return
-        w.set({ characters: [...w.characters, { id: `custom-${Date.now()}`, name, role: 'Custom', look, personality: '' }] })
+        w.set({ characters: [...useWizard.getState().characters, { id: `custom-${Date.now()}`, name, role: 'Custom', look, personality: '' }] })
         e.currentTarget.reset()
       }}
     >

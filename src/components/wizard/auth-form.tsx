@@ -36,9 +36,9 @@ export function AuthForm({ mode }: { mode: 'signup' | 'login' }) {
         const sub = subNichesFor(w.niche).find((s) => s.id === w.subNiche)?.name
         const { doc } = await api('series', {
           title: sub || w.niche, niche: w.niche, subNiche: sub, style: w.style, format: w.format,
-          voiceMode: w.voiceMode || 'none', frequency: w.frequency, qualityTier: w.qualityTier, aspect: w.aspect, status: 'active',
+          voiceMode: w.voiceMode || 'none', narratorVoice: w.narrator ?? undefined, frequency: w.frequency, qualityTier: w.qualityTier, aspect: w.aspect, status: 'active',
         })
-        for (const c of w.characters) await api('characters', { series: doc.id, name: c.name, role: c.role, bible: { look: c.look, personality: c.personality } })
+        for (const c of w.characters) await api('characters', { series: doc.id, name: c.name, role: c.role, bible: { look: c.look, personality: c.personality }, voiceProfile: c.voice ?? undefined })
         w.reset()
         router.push(`/dashboard/${doc.id}`)
       } else {
