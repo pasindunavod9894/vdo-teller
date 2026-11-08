@@ -1,7 +1,7 @@
 import type { Payload } from 'payload'
 import type { Character } from '@/payload-types'
 import { createMedia } from '../media'
-import { QUALITY_FOR_TIER } from '../lib/art/plan'
+import { mediaQuality } from '../agents/optimization'
 import { buildMockKit, type CharacterKit } from '../media/kit'
 import { loadKit } from '../media/kit-store'
 import { openWorkspace } from '../media/workspace'
@@ -33,7 +33,7 @@ export async function buildMediaCtx(
 ): Promise<MediaCtx | null> {
   if (!mediaEnabled()) return null
   const ws = openWorkspace(opts.episodeId, opts.seriesId)
-  const media = createMedia(ws, undefined, { quality: QUALITY_FOR_TIER[opts.tier as keyof typeof QUALITY_FOR_TIER] ?? 'medium' })
+  const media = createMedia(ws, undefined, { quality: mediaQuality(opts.tier) })
   const kits: Record<string, CharacterKit> = {}
   const cast = opts.cast.length ? opts.cast : [{ id: 0, name: 'the hero' }]
   for (const c of cast) {

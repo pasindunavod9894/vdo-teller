@@ -12,7 +12,8 @@ import { normalizeLoudness, videoSeconds } from '../engine/finish'
 import { compositeScene } from '../media/scene-still'
 import { withClipCache } from '../media/clip-cache'
 import { makeClip } from '../providers/video'
-import { IMAGE_COST, QUALITY_FOR_TIER } from '../lib/art/plan'
+import { IMAGE_COST } from '../lib/art/plan'
+import { mediaQuality, tokenOptimization } from '../agents/optimization'
 import { hashOf } from '../media/workspace'
 import { chromePath, type MediaCtx } from './media-ctx'
 
@@ -30,7 +31,7 @@ export async function artDirectorMedia(ctx: Ctx, m: MediaCtx, shots: ShotList): 
   const look = ctx.profile.style.promptTemplate
   let cost = 0
   let images = 0
-  const plateUsd = IMAGE_COST[QUALITY_FOR_TIER[ctx.profile.qualityTier]]
+  const plateUsd = IMAGE_COST[mediaQuality(ctx.profile.qualityTier)]
   const notes: string[] = []
 
   // 1. background plates (no characters: the engine places those)
@@ -114,7 +115,7 @@ export async function animatorMedia(ctx: Ctx, m: MediaCtx, script: Script, shots
   if (videoShots.length) {
     const r = await produceVideoShots({
       model: ctx.video.model, shots: videoShots.map((s) => ({ n: s.n, videoSeconds: s.videoSeconds, motionPrompt: s.motionPrompt })),
-      workDir: m.ws.clipsDir, allowanceSec: ctx.video.allowanceSec, make: withClipCache(m.ws.libraryDir, makeClip),
+      workDir: m.ws.clipsDir, allowanceSec: ctx.video.allowanceSec, make: tokenOptimization() ? withClipCache(m.ws.libraryDir, makeClip) : makeClip,
       stillFor: (n) => (m.state.stills[n] ? path.join(assetsDir, m.state.stills[n]) : null),
     })
     videoClips = r.clips

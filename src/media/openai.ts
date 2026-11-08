@@ -4,6 +4,7 @@ import OpenAI from 'openai'
 import { zodTextFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
 import { tokenCostUsd } from '../agents/models'
+import { tokenOptimization } from '../agents/optimization'
 import sharp from 'sharp'
 import { IMAGE_COST, type Quality } from '../lib/art/plan'
 import { probeDuration } from '../providers/video/fal'
@@ -56,7 +57,8 @@ export function createOpenAIMedia(opts: { assetsDir: string; libraryDir: string;
       let newSpend = 0
       // a line that was already made for this series (an earlier attempt or episode) comes back from the library for free
       const lib = path.join(opts.libraryDir, name)
-      if (!fs.existsSync(dest) && fs.existsSync(lib) && fs.existsSync(`${lib}.words.json`)) { fs.copyFileSync(lib, dest); fs.copyFileSync(`${lib}.words.json`, wordsFile) }
+      const reuse = tokenOptimization()
+      if (reuse && !fs.existsSync(dest) && fs.existsSync(lib) && fs.existsSync(`${lib}.words.json`)) { fs.copyFileSync(lib, dest); fs.copyFileSync(`${lib}.words.json`, wordsFile) }
       if (!fs.existsSync(dest)) {
         const r = await withRetry(`speech ${spec.name}`, () => client.audio.speech.create({ model: 'gpt-4o-mini-tts', voice: spec.voice, input: spec.text, instructions: spec.instructions, response_format: 'wav' }))
         fs.writeFileSync(dest, Buffer.from(await r.arrayBuffer()))
@@ -67,14 +69,16 @@ export function createOpenAIMedia(opts: { assetsDir: string; libraryDir: string;
         fs.writeFileSync(wordsFile, JSON.stringify(words))
         newSpend = (seconds / 60) * (SPEECH_USD_PER_MIN + WHISPER_USD_PER_MIN)
       }
-      if (!fs.existsSync(lib)) { fs.copyFileSync(dest, lib); fs.copyFileSync(wordsFile, `${lib}.words.json`) }
+      if (reuse && !fs.existsSync(lib)) { fs.copyFileSync(dest, lib); fs.copyFileSync(wordsFile, `${lib}.words.json`) }
       return { file: name, seconds, words: JSON.parse(fs.readFileSync(wordsFile, 'utf8')), costUsd: Math.round(newSpend * 10000) / 10000 }
     },
 
     async gate(file, rules) {
       // a small JPEG is all a quick check needs: a fraction of the upload, and the vision cost is the same low-detail price
-      const buf = await sharp(fs.readFileSync(file)).resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 70 }).toBuffer()
-      const mime = 'image/jpeg'
+      // optimization off: the original image is sent as it is
+      const small = tokenOptimization()
+      const buf = small ? await sharp(fs.readFileSync(file)).resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 70 }).toBuffer() : fs.readFileSync(file)
+      const mime = small ? 'image/jpeg' : 'image/png'
       const res = await withRetry('quality check', () => client.responses.parse({
         model: gateModel, reasoning: { effort: 'minimal' },
         instructions: 'You check generated images for an animation studio. Judge ONLY against the rules you are given. Be strict about the listed problems and ignore everything else.',

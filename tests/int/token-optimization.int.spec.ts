@@ -1,10 +1,11 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import sharp from 'sharp'
 import type OpenAI from 'openai'
-import { FLEX_DISCOUNT, MAX_OUTPUT_TOKENS, MODELS, tokenCostUsd } from '@/agents/models'
+import { FLEX_DISCOUNT, flexEnabled, MAX_OUTPUT_TOKENS, maxOutputTokens, MODELS, tokenCostUsd } from '@/agents/models'
+import { mediaQuality, tokenOptimization } from '@/agents/optimization'
 import { episodeCeilingUsd } from '@/pipeline/budget'
 import { mergeScriptPatch, ScriptPatchSchema } from '@/pipeline/script-patch'
 import { pickResume } from '@/pipeline/resume'
@@ -25,6 +26,11 @@ beforeAll(async () => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'tokens-'))
   png = await sharp({ create: { width: 1080, height: 1920, channels: 3, background: '#c97' } }).png().toBuffer()
 })
+
+const dirs = (series: string, episode: number) => { const ws = openWorkspace(episode, series, { episodes: path.join(root, 'ep'), series: path.join(root, 'se') }); return { assetsDir: ws.assetsDir, libraryDir: ws.libraryDir } }
+
+// a test that switches the optimization on or off must not leak that into the next one
+afterEach(() => { vi.unstubAllEnvs() })
 
 const beat = (n: number, line: string | null = `line ${n}`) => ({ n, action: `a${n}`, speaker: line ? 'Mango' : null, line, emotion: null, delivery: null, onScreenText: null })
 const script = (): Script => ({ title: 'T', hook: 'H', payoff: 'P', beats: [beat(1), beat(2), beat(3)] })
@@ -175,7 +181,6 @@ describe('clips are paid for once', () => {
 })
 
 describe('cheaper media', () => {
-  const dirs = (series: string, episode: number) => { const ws = openWorkspace(episode, series, { episodes: path.join(root, 'ep'), series: path.join(root, 'se') }); return { assetsDir: ws.assetsDir, libraryDir: ws.libraryDir } }
 
   it('draft quality plates cost a third of medium ones and ask for the draft quality', async () => {
     const generate = vi.fn(async () => ({ data: [{ b64_json: png.toString('base64') }] }))
@@ -187,6 +192,7 @@ describe('cheaper media', () => {
   })
 
   it('the quality check sends a small JPEG, not the full image', async () => {
+    vi.stubEnv('TOKEN_OPTIMIZATION', 'on')
     const parse = vi.fn(async () => ({ output_parsed: { pass: true, notes: 'ok' }, usage: { input_tokens: 300, output_tokens: 20, input_tokens_details: { cached_tokens: 0 } } }))
     const client = { responses: { parse } } as unknown as OpenAI
     const file = path.join(root, 'big.png'); fs.writeFileSync(file, png)
@@ -200,6 +206,7 @@ describe('cheaper media', () => {
   })
 
   it('a spoken line made once is reused by the next episode of the series for free', async () => {
+    vi.stubEnv('TOKEN_OPTIMIZATION', 'on')
     const tone = path.join(root, 'tone.wav')
     const { execFileSync } = await import('node:child_process')
     execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=1', '-ar', '24000', '-ac', '1', tone])
@@ -215,5 +222,54 @@ describe('cheaper media', () => {
     expect(speechCreate).toHaveBeenCalledTimes(1)
     expect(transcribe).toHaveBeenCalledTimes(1)
     expect(fs.existsSync(path.join(dirs('q3', 2).assetsDir, again.file))).toBe(true)
+  })
+})
+
+describe('the token optimization switch', () => {
+  it('is off by default and only a clear "on" turns it on', () => {
+    expect(tokenOptimization({})).toBe(false)
+    expect(tokenOptimization({ TOKEN_OPTIMIZATION: '' })).toBe(false)
+    expect(tokenOptimization({ TOKEN_OPTIMIZATION: 'off' })).toBe(false)
+    expect(tokenOptimization({ TOKEN_OPTIMIZATION: 'maybe' })).toBe(false)
+    for (const v of ['on', 'ON', '1', 'true', ' yes ']) expect(tokenOptimization({ TOKEN_OPTIMIZATION: v })).toBe(true)
+  })
+
+  it('off: no output caps, no flex even if asked, flat medium image quality', () => {
+    vi.stubEnv('TOKEN_OPTIMIZATION', 'off'); vi.stubEnv('OPENAI_FLEX', '1')
+    expect(maxOutputTokens('writer')).toBeUndefined()
+    expect(flexEnabled()).toBe(false)
+    for (const tier of ['budget', 'standard', 'premium']) expect(mediaQuality(tier)).toBe('medium')
+  })
+
+  it('on: the caps, flex (only when OPENAI_FLEX=1) and tier quality all apply', () => {
+    vi.stubEnv('TOKEN_OPTIMIZATION', 'on'); vi.stubEnv('OPENAI_FLEX', '')
+    expect(maxOutputTokens('writer')).toBe(MAX_OUTPUT_TOKENS.writer)
+    expect(flexEnabled()).toBe(false)
+    vi.stubEnv('OPENAI_FLEX', '1')
+    expect(flexEnabled()).toBe(true)
+    expect([mediaQuality('budget'), mediaQuality('standard'), mediaQuality('premium')]).toEqual(['low', 'medium', 'high'])
+  })
+
+  it('off: the quality check sends the original image, and speech is not stored for reuse', async () => {
+    vi.stubEnv('TOKEN_OPTIMIZATION', 'off')
+    const parse = vi.fn(async () => ({ output_parsed: { pass: true, notes: 'ok' }, usage: { input_tokens: 300, output_tokens: 20, input_tokens_details: { cached_tokens: 0 } } }))
+    const file = path.join(root, 'big-off.png'); fs.writeFileSync(file, png)
+    await createOpenAIMedia({ ...dirs('off1', 10), client: { responses: { parse } } as unknown as OpenAI }).gate(file, 'rules')
+    const url = (parse.mock.calls[0] as unknown as [{ input: { content: { image_url?: string }[] }[] }])[0].input[0].content[1].image_url!
+    expect(url.startsWith('data:image/png;base64,')).toBe(true)
+    expect(Buffer.from(url.split(',')[1], 'base64').equals(png)).toBe(true)
+
+    const tone = path.join(root, 'tone-off.wav')
+    const { execFileSync } = await import('node:child_process')
+    execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=1', '-ar', '24000', '-ac', '1', tone])
+    const wav = fs.readFileSync(tone)
+    const speechCreate = vi.fn(async () => new Response(new Uint8Array(wav)))
+    const transcribe = vi.fn(async () => ({ words: [{ word: 'Hi', start: 0, end: 0.5 }] }))
+    const client = { audio: { speech: { create: speechCreate }, transcriptions: { create: transcribe } } } as unknown as OpenAI
+    const spec = { name: 'beat-1', text: 'Hi', voice: 'coral' }
+    await createOpenAIMedia({ ...dirs('off2', 11), client }).speech(spec)
+    const again = await createOpenAIMedia({ ...dirs('off2', 12), client }).speech(spec)
+    expect(again.costUsd).toBeGreaterThan(0) // made again: nothing was kept for reuse
+    expect(speechCreate).toHaveBeenCalledTimes(2)
   })
 })

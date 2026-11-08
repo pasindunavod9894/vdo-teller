@@ -1,6 +1,7 @@
 import { Agent, run } from '@openai/agents'
 import type { z } from 'zod'
-import { flexEnabled, MAX_OUTPUT_TOKENS, MODELS, REASONING, tokenCostUsd, type AgentModelKey } from '@/agents/models'
+import { tokenOptimization } from '@/agents/optimization'
+import { flexEnabled, maxOutputTokens, MODELS, REASONING, tokenCostUsd, type AgentModelKey } from '@/agents/models'
 import { buildPrompt } from '@/agents/prompt-builder'
 import type { AgentName, SeriesProfile } from '@/agents/profile'
 import {
@@ -52,7 +53,7 @@ async function runTextAgent<S extends z.ZodType>(
     const a = new Agent<unknown, any>({
       name: agent, model, instructions: p.system, outputType: schema,
       modelSettings: {
-        reasoning: { effort: REASONING[modelKey] }, text: { verbosity: 'low' }, maxTokens: MAX_OUTPUT_TOKENS[modelKey],
+        reasoning: { effort: REASONING[modelKey] }, text: { verbosity: 'low' }, ...(maxOutputTokens(modelKey) ? { maxTokens: maxOutputTokens(modelKey) } : {}),
         providerData: { prompt_cache_key: p.cacheKey, ...(flex ? { service_tier: 'flex' } : {}) },
       },
     })
@@ -101,6 +102,12 @@ export async function showrunner(ctx: Ctx, previousTitles: string[]): Promise<Ag
 export async function writer(ctx: Ctx, idea: Idea, notes: string[], previous: Script | null): Promise<AgentResult<Script>> {
   if (ctx.mode === 'text') {
     // A revision returns only the beats that changed; the Orchestrator merges them (plan §3b).
+    if (notes.length && previous && !tokenOptimization()) {
+      // optimization off: the Writer rewrites the whole script from the Critic's notes
+      const raw = await runTextAgent('writer', 'writer', ScriptSchema, ctx, { idea, targetSeconds: ctx.profile.durationTargetSec, criticNotes: notes, previousScript: previous })
+      const output = scrubDeep(raw.output)
+      return { output, usage: raw.usage, summary: `${output.beats.length} beats · "${output.title}" · rewritten from ${notes.length} notes` }
+    }
     if (notes.length && previous) {
       const raw = await runTextAgent('writer', 'writer', ScriptPatchSchema, ctx, {
         idea, targetSeconds: ctx.profile.durationTargetSec, criticNotes: notes, previousScript: previous,

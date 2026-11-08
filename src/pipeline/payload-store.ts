@@ -11,6 +11,7 @@ import { buildMediaCtx } from './media-setup'
 import { dailyCapUsd, DAY_MS } from './scheduler'
 import { episodeCeilingUsd } from './budget'
 import { pickResume } from './resume'
+import { tokenOptimization } from '../agents/optimization'
 
 export class PipelineError extends Error {
   constructor(message: string, public status = 400) { super(message) }
@@ -136,7 +137,7 @@ export async function executeEpisode(payload: Payload, episodeId: string | numbe
       episodeCeilingUsd: episodeCeilingUsd(series.qualityTier, profile.durationTargetSec), scheduled: opts.scheduled === true,
       ...(media ? { media } : {}),
     }
-    return await runEpisode(ctx, store, past.map((e) => e.title ?? '').filter(Boolean), pickResume(past))
+    return await runEpisode(ctx, store, past.map((e) => e.title ?? '').filter(Boolean), tokenOptimization() ? pickResume(past) : null)
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Unknown error'
     console.error('[pipeline] run failed:', message)

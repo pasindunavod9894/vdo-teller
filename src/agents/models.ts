@@ -1,3 +1,5 @@
+import { tokenOptimization } from './optimization'
+
 // Single place that decides which OpenAI model each agent uses (plan §3b: cheapest model that does the job).
 export const MODELS = {
   showrunner: process.env.OPENAI_MODEL_SHOWRUNNER || 'gpt-5-mini',
@@ -16,7 +18,10 @@ export const MAX_OUTPUT_TOKENS: Record<AgentModelKey, number> = { showrunner: 15
 
 /** Flex processing (about half price, may be briefly unavailable) is used only for scheduled, non-interactive runs, and only when switched on. */
 export const FLEX_DISCOUNT = 0.5
-export const flexEnabled = () => process.env.OPENAI_FLEX === '1'
+export const flexEnabled = () => tokenOptimization() && process.env.OPENAI_FLEX === '1'
+
+/** The output cap for an agent; none at all while token optimization is off. */
+export const maxOutputTokens = (k: AgentModelKey): number | undefined => (tokenOptimization() ? MAX_OUTPUT_TOKENS[k] : undefined)
 
 // Approximate USD per 1M tokens: [input, cached input, output]. Verify on the OpenAI pricing page.
 const PRICES: Record<string, [number, number, number]> = {
