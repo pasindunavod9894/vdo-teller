@@ -3,12 +3,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { NextEpisodeCard } from './next-episode-card'
 import { ProgressCard } from './progress-card'
+import { FolderBar } from './folder-bar'
+import { useLocalFolder } from '@/lib/local-folder/use-local-folder'
 import type { Frequency } from '@/lib/schedule'
 
-export type EpisodeCard = { id: number | string; title: string; status: string; hook: string | null; hasVideo: boolean }
+export type EpisodeCard = { id: number | string; title: string; status: string; hook: string | null; hasVideo: boolean; meta?: unknown }
 
-export function LibraryGrid({ seriesId, frequency, lastEpisodeAt, episodes, runningEpisodeId, autoStart }: {
-  seriesId: number | string; frequency: Frequency; lastEpisodeAt: string | null
+export function LibraryGrid({ seriesId, title, frequency, lastEpisodeAt, episodes, runningEpisodeId, autoStart }: {
+  seriesId: number | string; title: string; frequency: Frequency; lastEpisodeAt: string | null
   episodes: EpisodeCard[]; runningEpisodeId: number | string | null; autoStart: boolean
 }) {
   const router = useRouter()
@@ -18,6 +20,7 @@ export function LibraryGrid({ seriesId, frequency, lastEpisodeAt, episodes, runn
   const [active, setActive] = useState(runningEpisodeId !== null)
   const [err, setErr] = useState('')
   const started = useRef(false)
+  const pendingAuto = useRef(false)
 
   const generate = useCallback(async () => {
     setActive(true); setErr('')
@@ -32,16 +35,25 @@ export function LibraryGrid({ seriesId, frequency, lastEpisodeAt, episodes, runn
     }
   }, [seriesId])
 
-  // The first video starts by itself right after signup (plan §Context step 11).
+  // The folder where videos are saved. Generation starts only once it is chosen (plan §6).
+  const folder = useLocalFolder({
+    seriesId, title, episodes,
+    onLinked: () => { if (pendingAuto.current) { pendingAuto.current = false; generate() } },
+  })
+
+  // The first video starts by itself right after signup (plan §Context step 11), as soon as a folder is linked.
   useEffect(() => {
-    if (!autoStart || started.current) return
+    if (!autoStart || started.current || folder.status === 'checking') return
     started.current = true
     router.replace(pathname)
-    if (episodes.length === 0 && !runningEpisodeId) generate()
-  }, [autoStart, episodes.length, runningEpisodeId, generate, router, pathname])
+    if (episodes.length > 0 || runningEpisodeId) return
+    if (folder.status === 'connected' || folder.status === 'needs-permission') generate()
+    else pendingAuto.current = true
+  }, [autoStart, folder.status, episodes.length, runningEpisodeId, generate, router, pathname])
 
   return (
     <div className="space-y-4">
+      <FolderBar seriesId={seriesId} status={folder.status} error={folder.error} syncing={folder.syncing} folderPath={folder.folderPath} onChoose={folder.choose} onReconnect={folder.reconnect} onForget={folder.forget} />
       {runId !== null && (
         <ProgressCard episodeId={runId} onFinished={() => { setActive(false); router.refresh() }} onDismiss={() => setRunId(null)} />
       )}
@@ -51,7 +63,7 @@ export function LibraryGrid({ seriesId, frequency, lastEpisodeAt, episodes, runn
           <div key={e.id} className="flex flex-col gap-1 rounded-[var(--radius)] border border-border bg-card p-3 text-sm">
             {e.hasVideo ? (
               // eslint-disable-next-line jsx-a11y/media-has-caption -- captions are burned into the picture
-              <video controls preload="metadata" playsInline className="aspect-[9/16] max-h-96 w-full rounded-md bg-black object-contain" src={`/api/episodes/${e.id}/video`} />
+              <video controls preload="metadata" playsInline className="aspect-[9/16] max-h-96 w-full rounded-md bg-black object-contain" src={folder.localUrls[String(e.id)] ?? `/api/episodes/${e.id}/video`} />
             ) : (
               <div className="flex aspect-[9/16] max-h-96 w-full items-center justify-center rounded-md bg-muted/40 px-2 text-center text-xs text-muted-foreground">
                 {e.status === 'done' ? 'Practice run (no video file)' : e.status}

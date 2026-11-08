@@ -83,6 +83,7 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
           </div>
           <LibraryGrid
             seriesId={series.id}
+            title={series.title}
             frequency={series.frequency as Frequency}
             lastEpisodeAt={lastEpisodeAt}
             runningEpisodeId={episodes.find((e) => e.status === 'running')?.id ?? null}
@@ -92,6 +93,7 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
               title: e.title ?? '',
               status: e.status,
               hasVideo: Boolean((e.files as { master?: string } | null)?.master),
+              meta: (e.files as { publish?: unknown } | null)?.publish,
               hook: e.idea && typeof e.idea === 'object' ? ((e.idea as { hook?: string }).hook ?? null) : null,
             }))}
           />

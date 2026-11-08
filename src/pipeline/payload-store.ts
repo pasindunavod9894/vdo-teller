@@ -32,6 +32,8 @@ async function loadOwnedSeries(payload: Payload, user: User, seriesId: string | 
 /** Creates the episode row and rejects overlapping runs and exhausted budgets. The caller then runs `executeEpisode`. */
 export async function startEpisode(payload: Payload, user: User, seriesId: string | number) {
   const series = await loadOwnedSeries(payload, user, seriesId)
+  // Videos are saved into the user's own folder (plan §6): generation starts once access is given.
+  if (!series.folderLinked) throw new PipelineError('Choose a folder for this series first. Generation starts once the app can save your videos there.', 428)
   const { docs: running } = await payload.find({ collection: 'episodes', where: { and: [{ series: { equals: series.id } }, { status: { equals: 'running' } }] }, depth: 0, limit: 5, overrideAccess: true })
   for (const e of running) {
     if (Date.now() - new Date(e.createdAt).getTime() > STALE_MS) {
