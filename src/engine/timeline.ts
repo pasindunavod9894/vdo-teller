@@ -68,6 +68,8 @@ export const LookSchema = z.object({
   grade: z.enum(['neutral', 'warm', 'cool', 'vivid', 'noir']).default('neutral'),
   grain: z.number().min(0).max(1).default(0.2),
   vignette: z.number().min(0).max(1).default(0.35),
+  /** Where captions sit. Voiced close-ups put the face low in the frame, so 'top' keeps captions off the face. */
+  captionPosition: z.enum(['top', 'middle', 'bottom']).default('bottom'),
 })
 
 export const TimelineSchema = z.object({
@@ -79,7 +81,7 @@ export const TimelineSchema = z.object({
   music: z.object({ src: Src, volume: z.number().min(0).max(1).default(0.25) }).nullable().default(null),
   sfx: z.array(AudioClipSchema).default([]),
   captions: z.array(CaptionSchema).default([]),
-  look: LookSchema.default({ grade: 'neutral', grain: 0.2, vignette: 0.35 }),
+  look: LookSchema.default({ grade: 'neutral', grain: 0.2, vignette: 0.35, captionPosition: 'bottom' }),
 })
 
 export type Timeline = z.infer<typeof TimelineSchema>

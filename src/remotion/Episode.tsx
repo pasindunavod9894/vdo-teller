@@ -4,7 +4,7 @@ import { framesOf, shotStarts, type Timeline } from '../engine/timeline'
 import { Grade, Grain, Vignette } from './Effects'
 import { ShotView } from './ShotView'
 
-const Captions: React.FC<{ captions: Timeline['captions'] }> = ({ captions }) => {
+const Captions: React.FC<{ captions: Timeline['captions']; position: Timeline['look']['captionPosition'] }> = ({ captions, position }) => {
   const frame = useCurrentFrame()
   const { fps, height } = useVideoConfig()
   const t = frame / fps
@@ -15,7 +15,7 @@ const Captions: React.FC<{ captions: Timeline['captions'] }> = ({ captions }) =>
   const active = Math.min(words.length - 1, Math.floor(progress * words.length))
   const s = spring({ frame: Math.round((t - c.startSec) * fps), fps, config: { damping: 14, stiffness: 170 } })
   return (
-    <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', paddingBottom: height * 0.14, pointerEvents: 'none' }}>
+    <AbsoluteFill style={{ justifyContent: position === 'bottom' ? 'flex-end' : position === 'middle' ? 'center' : 'flex-start', alignItems: 'center', paddingBottom: position === 'bottom' ? height * 0.14 : 0, paddingTop: position === 'top' ? height * 0.11 : 0, pointerEvents: 'none' }}>
       <div style={{ width: '86%', textAlign: 'center', transform: `scale(${0.9 + 0.1 * s})`, opacity: Math.min(1, s * 1.5), lineHeight: 1.18 }}>
         {words.map((w, i) => (
           <span key={i} style={{ fontFamily: "'Arial Rounded MT Bold','Helvetica Neue',Arial,sans-serif", fontWeight: 900, fontSize: height * 0.042, margin: '0 0.14em', display: 'inline-block', color: i === active ? '#ffe14d' : '#ffffff', WebkitTextStroke: `${height * 0.0055}px #141414`, paintOrder: 'stroke fill', transform: i === active ? 'scale(1.08)' : 'none' }}>{w}</span>
@@ -51,7 +51,7 @@ export const Episode: React.FC<{ timeline: Timeline }> = ({ timeline }) => {
           )
         })}
       </Grade>
-      <Captions captions={timeline.captions} />
+      <Captions captions={timeline.captions} position={timeline.look.captionPosition} />
       <Vignette amount={timeline.look.vignette} />
       <Grain amount={timeline.look.grain} />
       {timeline.voices.map((v, i) => (
