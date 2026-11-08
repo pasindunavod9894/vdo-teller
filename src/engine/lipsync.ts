@@ -67,3 +67,16 @@ export function mouthFrames(track: MouthKey[], opts: { startSec: number; endSec:
   frames.push({ atSec: opts.endSec, src: opts.restSrc })
   return frames
 }
+
+
+/** Smoothed 0..1 loudness envelope per video frame, used to drive head nods and pulses while a character speaks. */
+export function energyEnvelope(rms: number[]): number[] {
+  if (!rms.length) return []
+  const peak = Math.max(...rms, 1e-6)
+  const norm = rms.map((r) => r / peak)
+  // fast attack, slower release, so the head "hits" on syllables and settles between them
+  const out: number[] = []
+  let v = 0
+  for (const n of norm) { v = n > v ? v + (n - v) * 0.6 : v + (n - v) * 0.2; out.push(Math.round(v * 100) / 100) }
+  return out
+}

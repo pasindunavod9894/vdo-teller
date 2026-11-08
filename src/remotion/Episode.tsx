@@ -11,8 +11,18 @@ const Captions: React.FC<{ captions: Timeline['captions']; position: Timeline['l
   const c = captions.find((x) => t >= x.startSec && t <= x.endSec)
   if (!c) return null
   const words = c.text.split(/\s+/).filter(Boolean)
-  const progress = (t - c.startSec) / Math.max(0.1, c.endSec - c.startSec)
-  const active = Math.min(words.length - 1, Math.floor(progress * words.length))
+  // real word timings (speech recognition) when we have them; otherwise spread the words evenly
+  let active: number
+  if (c.words && c.words.length === words.length) {
+    const i = c.words.findIndex((w) => t >= w.startSec && t < w.endSec)
+    // between words: keep the word that was just spoken lit
+    let last = 0
+    c.words.forEach((w, k) => { if (t >= w.endSec) last = k })
+    active = i >= 0 ? i : last
+  } else {
+    const progress = (t - c.startSec) / Math.max(0.1, c.endSec - c.startSec)
+    active = Math.min(words.length - 1, Math.floor(progress * words.length))
+  }
   const s = spring({ frame: Math.round((t - c.startSec) * fps), fps, config: { damping: 14, stiffness: 170 } })
   return (
     <AbsoluteFill style={{ justifyContent: position === 'bottom' ? 'flex-end' : position === 'middle' ? 'center' : 'flex-start', alignItems: 'center', paddingBottom: position === 'bottom' ? height * 0.14 : 0, paddingTop: position === 'top' ? height * 0.11 : 0, pointerEvents: 'none' }}>

@@ -1,6 +1,7 @@
 import React from 'react'
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig, Easing } from 'remotion'
 import { frameAt, type CharacterLayer, type Shot } from '../engine/timeline'
+import { clamp01, cycleFrame, energyAt, hopOffset, lerp, squashStretch } from '../engine/motion'
 import { Particles } from './Effects'
 
 const easeInOut = Easing.inOut(Easing.cubic)
@@ -33,8 +34,26 @@ const CharacterView: React.FC<{ layer: CharacterLayer }> = ({ layer }) => {
   const frame = useCurrentFrame()
   const { fps, width, height } = useVideoConfig()
   const t = frame / fps
-  const src = frameAt(layer.frames, t)
 
+  // which image: a walk cycle if active, otherwise the timed frame list
+  const cyc = layer.cycle
+  const cycleSrc = cyc ? cycleFrame(cyc.frames, cyc.hz, cyc.fromSec, cyc.toSec, t) : null
+  const cycling = cycleSrc !== null
+  const src = cycleSrc ?? frameAt(layer.frames, t)
+
+  // position: static, or travelling along a path (with an optional hop)
+  let x = layer.x, y = layer.y, pathScale = 1, sq = { sx: 1, sy: 1 }
+  const pa = layer.path
+  if (pa) {
+    const raw = clamp01((t - pa.startSec) / Math.max(0.01, pa.endSec - pa.startSec))
+    const e = pa.ease === 'inOut' ? easeInOut(raw) : raw
+    x = lerp(pa.from.x, pa.to.x, e)
+    y = lerp(pa.from.y, pa.to.y, e) - hopOffset(pa.arc, raw)
+    pathScale = lerp(1, pa.scaleTo, e)
+    if (pa.arc > 0 && raw > 0 && raw < 1) sq = squashStretch(raw)
+  }
+
+  // enter animation
   const since = Math.max(0, t - layer.enterAtSec)
   let opacity = 1, tx = 0, enterScale = 1
   if (layer.enter !== 'none') {
@@ -43,15 +62,51 @@ const CharacterView: React.FC<{ layer: CharacterLayer }> = ({ layer }) => {
     if (layer.enter === 'pop') { enterScale = 0.6 + 0.4 * s; opacity = Math.min(opacity, s) }
     else { tx = (1 - s) * (layer.enter === 'slide-left' ? -0.4 : 0.4) * width; opacity = Math.min(opacity, Math.min(1, s * 2)) }
   }
-  const breathe = layer.motion === 'breathe' ? 1 + 0.012 * Math.sin((2 * Math.PI * t) / 3.2) : 1
-  const bob = layer.motion === 'bob' ? -Math.abs(Math.sin(2 * Math.PI * t * 1.6)) * 0.014 * height : 0
-  const w = layer.width * width
 
+  // idle life
+  let breathe = layer.motion === 'breathe' ? 1 + 0.012 * Math.sin((2 * Math.PI * t) / 3.2) : 1
+  let bob = layer.motion === 'bob' ? -Math.abs(Math.sin(2 * Math.PI * t * 1.6)) * 0.014 * height : 0
+  let rot = 0
+
+  // walk: bounce on every step and lean into the stride
+  if (cycling && cyc) {
+    const ph = (t - cyc.fromSec) * cyc.hz
+    bob = -Math.abs(Math.sin(Math.PI * ph)) * cyc.bounce * height
+    rot = Math.sin(Math.PI * ph) * cyc.lean * (layer.flip ? -1 : 1) * 0.5
+    breathe = 1
+  }
+
+  // speech-driven head motion: nod and pulse on loud syllables, slow sway between them
+  let talkScale = 1
+  if (layer.talk) {
+    const e = energyAt(layer.talk.energy, layer.talk.startSec, t, fps)
+    const a = layer.talk.amount
+    talkScale = 1 + 0.03 * e * a
+    bob += -e * 0.007 * height * a
+    rot += (Math.sin(t * 2.6) * 0.9 + Math.sin(t * 1.1 + 1) * 0.7 + (e - 0.4) * 1.2) * a
+  }
+
+  // shiver
+  let sx = 0
+  if (layer.shiver && t >= layer.shiver.fromSec && t < layer.shiver.toSec) {
+    const a = layer.shiver.amount
+    sx = Math.sin(t * 58) * 0.004 * width * a
+    rot += Math.sin(t * 47) * 0.9 * a
+  }
+
+  // blink overlay
+  const blinking = !!layer.blinks && layer.blinks.times.some((b) => t >= b && t < b + layer.blinks!.holdSec)
+
+  const w = layer.width * width * pathScale
+  const flipX = layer.flip ? -1 : 1
   return (
-    <div style={{ position: 'absolute', left: `${layer.x * 100}%`, top: `${layer.y * 100}%`, width: w, transform: `translate(calc(-50% + ${tx}px), calc(-100% + ${bob}px)) scale(${enterScale})`, transformOrigin: '50% 100%', opacity }}>
+    <div style={{ position: 'absolute', left: `${x * 100}%`, top: `${y * 100}%`, width: w, transform: `translate(calc(-50% + ${tx + sx}px), calc(-100% + ${bob}px)) rotate(${rot}deg) scale(${enterScale * talkScale})`, transformOrigin: '50% 100%', opacity }}>
       {/* contact shadow so the cut-out sits on the scene */}
       <div style={{ position: 'absolute', left: '10%', right: '10%', bottom: -w * 0.03, height: w * 0.09, borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(0,0,0,0.45), rgba(0,0,0,0) 70%)', filter: 'blur(6px)' }} />
-      <Img src={staticFile(src)} style={{ position: 'relative', width: '100%', display: 'block', transform: `scaleX(${layer.flip ? -1 : 1}) scaleY(${breathe})`, transformOrigin: '50% 100%', filter: 'drop-shadow(0 10px 14px rgba(0,0,0,0.28))' }} />
+      <div style={{ position: 'relative', transform: `scaleX(${flipX * sq.sx}) scaleY(${breathe * sq.sy})`, transformOrigin: '50% 100%' }}>
+        <Img src={staticFile(src)} style={{ width: '100%', display: 'block', filter: 'drop-shadow(0 10px 14px rgba(0,0,0,0.28))' }} />
+        {blinking && layer.blinks && <Img src={staticFile(layer.blinks.src)} style={{ position: 'absolute', inset: 0, width: '100%', display: 'block' }} />}
+      </div>
     </div>
   )
 }

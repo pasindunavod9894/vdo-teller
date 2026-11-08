@@ -102,3 +102,27 @@ export async function writeBusts(busts: Bust[], dir: string, suffix = '-n') {
     return p
   }))
 }
+
+
+/**
+ * Aligns full-body poses (stand, walk strides, crouch, jump) on one canvas WITHOUT rescaling them (they were generated at
+ * the same scale): the bottom of the visible subject sits on one baseline and the subject is centred horizontally, so
+ * swapping poses does not make the character slide or hop.
+ */
+export async function alignBodies(files: { name: string; file: string }[], opts: { canvas?: number; baseline?: number } = {}): Promise<Bust[]> {
+  const canvas = opts.canvas ?? 1100
+  const baseline = opts.baseline ?? 1060
+  const out: Bust[] = []
+  for (const f of files) {
+    const { data, info } = await sharp(f.file).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+    const m = measureBust(data, info.width, info.height)
+    const w = m.right - m.left + 1, h = m.bottom - m.top + 1
+    const cropped = await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } })
+      .extract({ left: m.left, top: m.top, width: w, height: h }).png().toBuffer()
+    const left = Math.round(canvas / 2 - w / 2), top = Math.round(baseline - h)
+    const png = await sharp({ create: { width: canvas, height: canvas, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+      .composite([{ input: cropped, left: Math.max(0, left), top: Math.max(0, top) }]).png().toBuffer()
+    out.push({ name: f.name, data: png, width: canvas, height: canvas })
+  }
+  return out
+}

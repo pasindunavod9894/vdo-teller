@@ -18,6 +18,27 @@ export const CameraSchema = z.object({
 
 export const FrameSwapSchema = z.object({ atSec: z.number().min(0), src: Src })
 
+const Pt = z.object({ x: z.number(), y: z.number() })
+
+/** Travel across the shot. `arc` adds a parabolic hop (fraction of frame height) with automatic squash-and-stretch. */
+export const PathSchema = z.object({
+  from: Pt, to: Pt,
+  startSec: z.number().min(0), endSec: z.number().min(0),
+  arc: z.number().min(0).max(1).default(0),
+  ease: z.enum(['linear', 'inOut']).default('inOut'),
+  /** scale at the end of the path (1 = unchanged); used to walk away into the distance */
+  scaleTo: z.number().default(1),
+})
+
+/** Frame cycle (walk): the images alternate at `hz` between fromSec and toSec, with bounce and lean synced to the stride. */
+export const CycleSchema = z.object({
+  frames: z.array(Src).min(2), hz: z.number().default(3), fromSec: z.number().min(0), toSec: z.number().min(0),
+  bounce: z.number().default(0.012), lean: z.number().default(2.5),
+})
+
+/** Speech-driven head motion: `energy` is the normalised loudness per video frame (0..1), starting at `startSec`. */
+export const TalkSchema = z.object({ energy: z.array(z.number()), startSec: z.number().min(0), amount: z.number().default(1) })
+
 export const CharacterLayerSchema = z.object({
   kind: z.literal('character'),
   id: z.string(),
@@ -33,6 +54,13 @@ export const CharacterLayerSchema = z.object({
   enter: z.enum(['none', 'pop', 'slide-left', 'slide-right']).default('none'),
   /** seconds, relative to the start of the shot */
   enterAtSec: z.number().default(0),
+  path: PathSchema.optional(),
+  cycle: CycleSchema.optional(),
+  talk: TalkSchema.optional(),
+  /** trembling (fear, cold) */
+  shiver: z.object({ fromSec: z.number(), toSec: z.number(), amount: z.number().default(0.5) }).optional(),
+  /** an overlay image (eyes closed) shown briefly at the given times */
+  blinks: z.object({ src: Src, times: z.array(z.number()), holdSec: z.number().default(0.12) }).optional(),
 })
 
 export const TextLayerSchema = z.object({
@@ -62,7 +90,9 @@ export const ShotSchema = z.object({
 
 export const AudioClipSchema = z.object({ src: Src, startSec: z.number().min(0), volume: z.number().min(0).max(1).default(1) })
 
-export const CaptionSchema = z.object({ text: z.string(), startSec: z.number().min(0), endSec: z.number().min(0) })
+export const WordSchema = z.object({ text: z.string(), startSec: z.number().min(0), endSec: z.number().min(0) })
+
+export const CaptionSchema = z.object({ text: z.string(), startSec: z.number().min(0), endSec: z.number().min(0), /** real word timings (from speech recognition); when absent, words are spread evenly */ words: z.array(WordSchema).optional() })
 
 export const LookSchema = z.object({
   grade: z.enum(['neutral', 'warm', 'cool', 'vivid', 'noir']).default('neutral'),
