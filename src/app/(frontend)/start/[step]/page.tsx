@@ -5,9 +5,9 @@ import { useWizard } from '@/lib/wizard/store'
 import { STEPS } from '@/components/wizard/steps'
 import { StepFooter } from '@/components/wizard/step-footer'
 import { OptionCard } from '@/components/wizard/option-card'
-import {
-  charactersFor, formatsFor, FREQUENCIES, QUALITIES, stylesFor, subNichesFor, voicesFor,
-} from '@/lib/wizard/mock-data'
+import { FREQUENCIES, QUALITIES } from '@/lib/wizard/mock-data'
+import { useOptions, useSubNiches } from '@/lib/research/client'
+import { Researching, SourceBadge } from '@/components/wizard/research-status'
 import { cn } from '@/lib/utils'
 
 const TITLES: Record<string, { h: string; p: string }> = {
@@ -25,11 +25,16 @@ export default function StepPage({ params }: { params: Promise<{ step: string }>
   const router = useRouter()
   const w = useWizard()
   const valid = STEPS.some((s) => s.slug === step)
+  const isSub = step === 'sub-niche'
+  const needsOptions = ['style', 'format', 'characters', 'voice', 'frequency'].includes(step)
+  const subs = useSubNiches(valid && isSub, w.niche)
+  const opts = useOptions(valid && needsOptions, w.niche, w.subNiche)
   useEffect(() => { if (valid && !w.niche) router.replace('/start') }, [valid, w.niche, router])
   if (!valid) notFound()
   if (!w.niche) return null
 
   const t = TITLES[step]
+  const research = isSub ? subs : needsOptions ? opts : null
   let body: React.ReactNode = null
   let canContinue = false
 
@@ -37,7 +42,7 @@ export default function StepPage({ params }: { params: Promise<{ step: string }>
     canContinue = !!w.subNiche
     body = (
       <div className="grid gap-4 sm:grid-cols-2">
-        {subNichesFor(w.niche).map((s) => (
+        {(subs.data?.subNiches ?? []).map((s) => (
           <OptionCard key={s.id} selected={w.subNiche === s.id} onClick={() => w.set({ subNiche: s.id })}
             title={s.name} subtitle={s.blurb} badge={s.trend === 'rising' ? 'Rising' : s.trend === 'stable' ? 'Stable' : 'Falling'}>
             <div className="flex items-center gap-2">
@@ -51,7 +56,7 @@ export default function StepPage({ params }: { params: Promise<{ step: string }>
     )
   } else if (step === 'style') {
     canContinue = !!w.style
-    const list = stylesFor(w.niche)
+    const list = opts.data?.styles ?? []
     body = (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {list.filter((s) => s.status !== 'not_suitable').map((s) => (
@@ -78,7 +83,7 @@ export default function StepPage({ params }: { params: Promise<{ step: string }>
     canContinue = !!w.format
     body = (
       <div className="grid gap-4 sm:grid-cols-3">
-        {formatsFor().map((f) => (
+        {(opts.data?.formats ?? []).map((f) => (
           <OptionCard key={f.id} selected={w.format === f.id} onClick={() => w.set({ format: f.id })}
             title={f.name} subtitle={f.blurb} badge={f.recommended ? 'Recommended' : f.length} badgeTone={f.recommended ? 'accent' : 'muted'}>
             <div className="text-xs text-muted-foreground">{f.length}</div>
@@ -88,7 +93,7 @@ export default function StepPage({ params }: { params: Promise<{ step: string }>
     )
   } else if (step === 'characters') {
     canContinue = w.characters.length > 0
-    const ideas = charactersFor(w.niche)
+    const ideas = opts.data?.characters ?? []
     body = (
       <div className="space-y-6">
         <div className="grid gap-4 sm:grid-cols-3">
@@ -112,7 +117,7 @@ export default function StepPage({ params }: { params: Promise<{ step: string }>
     canContinue = !!w.voiceMode
     body = (
       <div className="grid gap-4 sm:grid-cols-2">
-        {voicesFor(w.niche).map((v) => (
+        {(opts.data?.voices ?? []).map((v) => (
           <OptionCard key={v.id} selected={w.voiceMode === v.id} onClick={() => w.set({ voiceMode: v.id })} dim={v.status === 'not_suitable'}
             title={v.name} subtitle={v.blurb} badge={v.status === 'recommended' ? 'Recommended' : v.status === 'suitable' ? 'Suitable' : 'Weak fit'} badgeTone={v.status === 'recommended' ? 'accent' : 'muted'}>
             <div className="text-xs text-muted-foreground">{v.why}</div>
@@ -124,7 +129,7 @@ export default function StepPage({ params }: { params: Promise<{ step: string }>
     canContinue = !!w.frequency
     body = (
       <div className="grid gap-4 sm:grid-cols-2">
-        {FREQUENCIES.map((f) => (
+        {(opts.data?.frequencies ?? FREQUENCIES).map((f) => (
           <OptionCard key={f.id} selected={w.frequency === f.id} onClick={() => w.set({ frequency: f.id })}
             title={f.name} subtitle={f.blurb} badge={f.recommended ? 'Best for growth' : `${f.perMonth} videos / month`} badgeTone={f.recommended ? 'accent' : 'muted'}>
             <div className="text-xs text-muted-foreground">{f.perMonth} videos / month</div>
@@ -164,9 +169,13 @@ export default function StepPage({ params }: { params: Promise<{ step: string }>
   return (
     <div>
       <h1 className="text-3xl font-semibold tracking-tight">{t.h}</h1>
-      <p className="mt-2 text-muted-foreground">{t.p} <span className="text-foreground/70">· {w.niche}</span></p>
-      <div className="mt-8">{body}</div>
-      <StepFooter slug={step} canContinue={canContinue} />
+      <p className="mt-2 text-muted-foreground">{t.p} <span className="text-foreground/70">· {w.niche}</span>{research && <SourceBadge source={research.source} />}</p>
+      <div className="mt-8">
+        {research?.loading ? <Researching /> : research?.error ? (
+          <p className="rounded-xl border border-destructive/40 p-4 text-sm text-destructive">{research.error}</p>
+        ) : body}
+      </div>
+      <StepFooter slug={step} canContinue={canContinue && !research?.loading} />
     </div>
   )
 }

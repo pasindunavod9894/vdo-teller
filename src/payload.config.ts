@@ -11,6 +11,7 @@ import { Series } from './collections/Series'
 import { Characters } from './collections/Characters'
 import { Episodes } from './collections/Episodes'
 import { PipelineSteps } from './collections/PipelineSteps'
+import { NicheResearchCache } from './collections/NicheResearchCache'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -22,7 +23,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Series, Characters, Episodes, PipelineSteps],
+  collections: [Users, Media, Series, Characters, Episodes, PipelineSteps, NicheResearchCache],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {

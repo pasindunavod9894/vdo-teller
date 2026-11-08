@@ -73,6 +73,7 @@ export interface Config {
     characters: Character;
     episodes: Episode;
     'pipeline-steps': PipelineStep;
+    'niche-research-cache': NicheResearchCache;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -86,6 +87,7 @@ export interface Config {
     characters: CharactersSelect<false> | CharactersSelect<true>;
     episodes: EpisodesSelect<false> | EpisodesSelect<true>;
     'pipeline-steps': PipelineStepsSelect<false> | PipelineStepsSelect<true>;
+    'niche-research-cache': NicheResearchCacheSelect<false> | NicheResearchCacheSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -363,6 +365,26 @@ export interface PipelineStep {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "niche-research-cache".
+ */
+export interface NicheResearchCache {
+  id: number;
+  key: string;
+  data:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  expiresAt: string;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -408,6 +430,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'pipeline-steps';
         value: number | PipelineStep;
+      } | null)
+    | ({
+        relationTo: 'niche-research-cache';
+        value: number | NicheResearchCache;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -583,6 +609,17 @@ export interface PipelineStepsSelect<T extends boolean = true> {
   reasoningTokens?: T;
   imageCount?: T;
   costUsd?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "niche-research-cache_select".
+ */
+export interface NicheResearchCacheSelect<T extends boolean = true> {
+  key?: T;
+  data?: T;
+  expiresAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
