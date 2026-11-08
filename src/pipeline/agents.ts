@@ -5,12 +5,13 @@ import { buildPrompt } from '@/agents/prompt-builder'
 import type { AgentName, SeriesProfile } from '@/agents/profile'
 import {
   CritiqueSchema, IdeaSchema, PublishSchema, ScriptSchema,
-  type Critique, type Idea, type Publish, type QaReport, type Script, type ShotList, type Timeline,
+  type Critique, type Idea, type Publish, type QaReport, type Script, type ShotList, type Timeline, type VideoClip,
 } from './schemas'
 import { scrubDeep, cleanHashtags } from './brand-safety'
+import { plannedVideoCostUsd, planVideoShots, videoCostUsd, type VideoModelId } from '../lib/video'
 import { APPROVE_SCORE, type PipelineMode } from './steps'
 
-export type Usage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; costUsd: number }
+export type Usage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; costUsd: number; videoSeconds?: number }
 export type AgentResult<T> = { output: T; summary: string; usage?: Usage }
 
 export type Ctx = {
@@ -19,6 +20,8 @@ export type Ctx = {
   mode: PipelineMode
   /** simulated work time for mock agents, so the progress card is watchable. 0 in tests. */
   delayMs: number
+  /** the real-video budget for THIS episode (tier allowance limited by the money left); see src/lib/video.ts */
+  video: { model: VideoModelId; allowanceSec: number; provider: 'fal' | 'mock' }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -127,12 +130,28 @@ export async function critic(ctx: Ctx, script: Script, round: number): Promise<A
 export async function artDirector(ctx: Ctx, script: Script): Promise<AgentResult<ShotList>> {
   await sleep(ctx.delayMs)
   const types = ['establishing', 'dialogue', 'subtle', 'action', 'reaction', 'dialogue', 'action', 'reaction'] as const
-  const shots = script.beats.map((b, i) => ({
+  const base = script.beats.map((b, i) => ({
     n: i + 1, type: types[i % types.length], description: b.action, durationSec: 2.5 + (i % 3) * 0.5,
     characters: b.speaker && b.speaker !== 'narrator' ? [b.speaker] : [], beat: b.n,
   }))
+  // Real video only where it pays off, and only within the tier's allowance (plan §1b): action first, never dialogue or info.
+  const plan = planVideoShots(base, ctx.video.allowanceSec, ctx.video.model)
+  const shots = base.map((s, i) => ({
+    ...s,
+    // a paid clip is 5 or 10 s whatever the shot length: hold the shot for the whole clip so none of it is wasted
+    durationSec: plan[i].render === 'video' ? Math.max(s.durationSec, plan[i].seconds) : s.durationSec,
+    render: plan[i].render,
+    videoSeconds: plan[i].seconds,
+    motionPrompt: plan[i].render === 'video'
+      ? `${s.description} Natural, realistic motion; the character's look stays exactly the same as in the image. Camera: ${s.type === 'action' ? 'handheld, following the action' : 'slow push-in'}.`
+      : null,
+  }))
   const dialogue = shots.filter((s) => s.type === 'dialogue').length
-  return { output: { shots }, summary: `${shots.length} shots · ${dialogue} dialogue · varied shot types` }
+  const videoShots = shots.filter((s) => s.render === 'video')
+  const videoNote = videoShots.length
+    ? `${videoShots.length} real-motion (${videoShots.reduce((n, s) => n + s.videoSeconds, 0)}s, ≈ $${plannedVideoCostUsd(plan, ctx.video.model).toFixed(2)})`
+    : 'no real-motion shots'
+  return { output: { shots }, summary: `${shots.length} shots · ${dialogue} dialogue · ${videoNote}` }
 }
 
 // ---------- Animator (media: mock until Phase 8/9) ----------
@@ -143,13 +162,23 @@ export async function animator(ctx: Ctx, script: Script, shots: ShotList): Promi
     const c = ctx.profile.cast.find((x) => x.name === b.speaker)
     return { speaker: b.speaker as string, voice: c?.voiceProfile?.voice ?? ctx.profile.narrator?.voice ?? 'fable', text: b.line as string }
   })
+  // Real-video shots are only PLANNED here: generating a clip needs the shot's full-scene still, which the media phase supplies.
+  const videoClips: VideoClip[] = shots.shots.filter((s) => s.render === 'video').map((s) => ({
+    shot: s.n, model: ctx.video.model, seconds: s.videoSeconds, estimatedUsd: videoCostUsd(ctx.video.model, s.videoSeconds), costUsd: 0, status: 'planned' as const,
+  }))
   const timeline: Timeline = {
     durationSec: Math.round(shots.shots.reduce((s, x) => s + x.durationSec, 0)),
-    shots: shots.shots.map((s, i) => ({ n: s.n, type: s.type, camera: cameras[i % cameras.length], motion: s.type === 'action' ? 'keyframes + implied-action cut' : 'subtle life', durationSec: s.durationSec })),
+    shots: shots.shots.map((s, i) => ({
+      n: s.n, type: s.type, camera: cameras[i % cameras.length],
+      motion: s.render === 'video' ? `real motion (${ctx.video.model})` : s.type === 'action' ? 'keyframes + implied-action cut' : 'subtle life',
+      durationSec: s.durationSec, render: s.render, videoSeconds: s.videoSeconds,
+    })),
     audio: { voices, music: 'light playful loop', sfx: ['whoosh', 'thud', 'meow'] },
+    videoClips,
     mock: true,
   }
-  return { output: timeline, summary: `${timeline.durationSec}s timeline · ${voices.length} voiced lines` }
+  const plannedSec = videoClips.reduce((n, c) => n + c.seconds, 0)
+  return { output: timeline, summary: `${timeline.durationSec}s timeline · ${voices.length} voiced lines · ${videoClips.length} video clips planned (${plannedSec}s)` }
 }
 
 // ---------- Editor-QA (media: mock until Phase 8/9) ----------

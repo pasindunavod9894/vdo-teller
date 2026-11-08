@@ -24,6 +24,7 @@ export const PipelineSteps: CollectionConfig = {
     { name: 'outputTokens', type: 'number' },
     { name: 'reasoningTokens', type: 'number' },
     { name: 'imageCount', type: 'number' },
+    { name: 'videoSeconds', type: 'number' },
     { name: 'costUsd', type: 'number' },
   ],
 }

@@ -40,6 +40,12 @@ describe('timeline', () => {
     expect(shotStarts(t)).toEqual([0, 2])
     expect(framesOf(2, 30)).toBe(60)
   })
+  it('accepts a real-video shot and defaults its playback', () => {
+    const v = TimelineSchema.parse({ shots: [{ id: 'a', durationSec: 5, background: 'still.png', video: { src: 'clip.mp4' } }] })
+    expect(v.shots[0].video).toEqual({ src: 'clip.mp4', startFromSec: 0, playbackRate: 1 })
+    expect(TimelineSchema.parse({ shots: [{ id: 'b', durationSec: 2, background: 'b.png' }] }).shots[0].video).toBeUndefined()
+    expect(TimelineSchema.safeParse({ shots: [{ id: 'a', durationSec: 5, background: 's.png', video: { src: '' } }] }).success).toBe(false)
+  })
   it('rejects a timeline with no shots or an empty asset name', () => {
     expect(TimelineSchema.safeParse({ shots: [] }).success).toBe(false)
     expect(TimelineSchema.safeParse({ shots: [{ id: 'a', durationSec: 2, background: '' }] }).success).toBe(false)

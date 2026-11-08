@@ -13,9 +13,12 @@ const profile = (voiceMode: SeriesProfile['voiceMode']): SeriesProfile => ({
   ],
   narrator: { voice: 'fable' }, qualityTier: 'standard',
 })
-const ctx = (voiceMode: SeriesProfile['voiceMode']): Ctx => ({ profile: profile(voiceMode), seriesId: 1, mode: 'mock', delayMs: 0 })
+const ctx = (voiceMode: SeriesProfile['voiceMode'], allowanceSec = 10): Ctx => ({
+  profile: profile(voiceMode), seriesId: 1, mode: 'mock', delayMs: 0, video: { model: 'kling-2.5-turbo', allowanceSec, provider: 'mock' },
+})
 
-function memoryStore(opts: { budgetOk?: boolean } = {}) {
+/** `budgetOk: false` refuses everything; `maxExtraUsd` refuses only requests above that amount (e.g. real video). */
+function memoryStore(opts: { budgetOk?: boolean; maxExtraUsd?: number } = {}) {
   const events: string[] = []
   const episode: Record<string, unknown> = {}
   const store: Store = {
@@ -23,7 +26,7 @@ function memoryStore(opts: { budgetOk?: boolean } = {}) {
     stepDone: async (k: StepKey) => { events.push(`done:${k}`) },
     stepFail: async (k: StepKey, m: string) => { events.push(`fail:${k}:${m}`) },
     episodePatch: async (p) => { Object.assign(episode, p) },
-    budgetOk: async () => opts.budgetOk ?? true,
+    budgetOk: async (extra: number) => (opts.maxExtraUsd !== undefined ? extra <= opts.maxExtraUsd : (opts.budgetOk ?? true)),
     addSpend: async () => {},
   }
   return { store, events, episode }
@@ -93,6 +96,52 @@ describe('orchestrator (mock mode)', () => {
     expect(out.status).toBe('needs-review')
     expect(episode.error).toBe('Cost cap reached.')
     expect(events.some((e) => e.startsWith('fail:'))).toBe(true)
+  })
+
+  describe('real video (hybrid by tier)', () => {
+    type ShotRow = { n: number; type: string; render: string; videoSeconds: number; motionPrompt: string | null }
+    const run = async (allowanceSec: number, over: { budgetOk?: boolean; maxExtraUsd?: number } = {}) => {
+      const m = memoryStore(over)
+      const out = await runEpisode(ctx('character_voices', allowanceSec), m.store, [])
+      const shots = (m.episode.shots as { shots: ShotRow[] }).shots
+      return { ...m, out, shots, clips: (m.episode.videoClips ?? []) as { shot: number; seconds: number; status: string; costUsd: number; estimatedUsd: number }[] }
+    }
+
+    it('tags video shots up to the allowance and never more', async () => {
+      for (const a of [0, 5, 10, 15, 25]) {
+        const { shots } = await run(a)
+        expect(shots.reduce((n, s) => n + s.videoSeconds, 0)).toBeLessThanOrEqual(a)
+      }
+      expect((await run(0)).shots.every((s) => s.render === 'engine')).toBe(true)
+      expect((await run(10)).shots.some((s) => s.render === 'video')).toBe(true)
+    })
+
+    it('never sends dialogue shots to the video model, and gives every video shot a motion prompt', async () => {
+      const { shots } = await run(100)
+      expect(shots.filter((s) => s.type === 'dialogue').every((s) => s.render === 'engine' && s.motionPrompt === null)).toBe(true)
+      expect(shots.filter((s) => s.render === 'video').every((s) => s.videoSeconds >= 5 && (s.motionPrompt ?? '').length > 10)).toBe(true)
+    })
+
+    it('holds each video shot for its whole paid clip, so no purchased seconds are wasted', async () => {
+      const { shots } = await run(25)
+      const video = (shots as unknown as { render: string; videoSeconds: number; durationSec: number }[]).filter((s) => s.render === 'video')
+      expect(video.length).toBeGreaterThan(0)
+      expect(video.every((s) => s.durationSec >= s.videoSeconds)).toBe(true)
+    })
+
+    it('records the planned clips with an estimated cost, and nothing is spent yet (clips need stills)', async () => {
+      const { clips, shots } = await run(10)
+      expect(clips.length).toBe(shots.filter((s) => s.render === 'video').length)
+      expect(clips.every((c) => c.status === 'planned' && c.costUsd === 0 && c.estimatedUsd > 0)).toBe(true)
+    })
+
+    it('downgrades planned video to engine shots, and finishes anyway, when the budget cannot cover it', async () => {
+      const { out, shots, clips, episode } = await run(10, { maxExtraUsd: 0.1 }) // normal steps are fine; $0.70 of video is not
+      expect(shots.every((s) => s.render === 'engine' && s.videoSeconds === 0)).toBe(true)
+      expect(clips).toEqual([])
+      expect(out.status).toBe('done')
+      expect(episode.status).toBe('done')
+    })
   })
 
   it('marks the episode failed (not stuck running) when an agent throws', async () => {

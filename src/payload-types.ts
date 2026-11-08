@@ -231,6 +231,15 @@ export interface Series {
   status: 'draft' | 'active' | 'paused' | 'removed';
   costCapUsd?: number | null;
   spentUsd?: number | null;
+  /**
+   * Video model used for real-motion shots (switchable per niche).
+   */
+  videoModel: 'kling-2.5-turbo';
+  /**
+   * Optional hard limit on total real-video seconds for this series. Empty = limited only by the tier and the cost cap.
+   */
+  videoBudgetSec?: number | null;
+  videoSpentSec?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -339,6 +348,19 @@ export interface Episode {
     | boolean
     | null;
   costUsd?: number | null;
+  videoCostUsd?: number | null;
+  /**
+   * One entry per real-video shot: shot, model, seconds, costUsd, file, status.
+   */
+  videoClips?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   error?: string | null;
   mode?: string | null;
   scheduledFor?: string | null;
@@ -368,6 +390,7 @@ export interface PipelineStep {
   outputTokens?: number | null;
   reasoningTokens?: number | null;
   imageCount?: number | null;
+  videoSeconds?: number | null;
   costUsd?: number | null;
   updatedAt: string;
   createdAt: string;
@@ -576,6 +599,9 @@ export interface SeriesSelect<T extends boolean = true> {
   status?: T;
   costCapUsd?: T;
   spentUsd?: T;
+  videoModel?: T;
+  videoBudgetSec?: T;
+  videoSpentSec?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -619,6 +645,8 @@ export interface EpisodesSelect<T extends boolean = true> {
   audio?: T;
   files?: T;
   costUsd?: T;
+  videoCostUsd?: T;
+  videoClips?: T;
   error?: T;
   mode?: T;
   scheduledFor?: T;
@@ -647,6 +675,7 @@ export interface PipelineStepsSelect<T extends boolean = true> {
   outputTokens?: T;
   reasoningTokens?: T;
   imageCount?: T;
+  videoSeconds?: T;
   costUsd?: T;
   updatedAt?: T;
   createdAt?: T;

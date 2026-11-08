@@ -39,5 +39,15 @@ export const Series: CollectionConfig = {
     { name: 'status', type: 'select', options: ['draft', 'active', 'paused', 'removed'], defaultValue: 'draft', required: true },
     { name: 'costCapUsd', type: 'number', defaultValue: 5 },
     { name: 'spentUsd', type: 'number', defaultValue: 0, admin: { readOnly: true } },
+    {
+      name: 'videoModel',
+      type: 'select',
+      options: [{ label: 'Kling 2.5 Turbo (fal.ai)', value: 'kling-2.5-turbo' }],
+      defaultValue: 'kling-2.5-turbo',
+      required: true,
+      admin: { description: 'Video model used for real-motion shots (switchable per niche).' },
+    },
+    { name: 'videoBudgetSec', type: 'number', admin: { description: 'Optional hard limit on total real-video seconds for this series. Empty = limited only by the tier and the cost cap.' } },
+    { name: 'videoSpentSec', type: 'number', defaultValue: 0, admin: { readOnly: true } },
   ],
 }

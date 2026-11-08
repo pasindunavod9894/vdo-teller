@@ -42,6 +42,9 @@ export const ShotListSchema = z.object({
     durationSec: z.number().describe('seconds, 1.5 to 6'),
     characters: z.array(z.string()),
     beat: z.number().int().describe('script beat number this shot covers'),
+    render: z.enum(['engine', 'video']).describe('video only for action, establishing or reaction shots, within the video-second allowance; never dialogue or info'),
+    videoSeconds: z.number().describe('clip length for a video shot (5 or 10), 0 for an engine shot'),
+    motionPrompt: z.string().nullable().describe('for a video shot: what moves and how the camera moves, no brand names; null for engine shots'),
   })),
 })
 
@@ -58,10 +61,20 @@ export type Critique = z.infer<typeof CritiqueSchema>
 export type ShotList = z.infer<typeof ShotListSchema>
 export type Publish = z.infer<typeof PublishSchema>
 
+export type VideoClipStatus = 'planned' | 'generated' | 'mock' | 'needs-still' | 'skipped-budget' | 'failed'
+
+/** One real-video shot. `planned` = chosen by the Art Director, not generated yet (generation needs the shot's still). */
+export type VideoClip = {
+  shot: number; model: string; seconds: number
+  estimatedUsd: number; costUsd: number
+  status: VideoClipStatus; file?: string; error?: string
+}
+
 export type Timeline = {
   durationSec: number
-  shots: { n: number; type: string; camera: string; motion: string; durationSec: number }[]
+  shots: { n: number; type: string; camera: string; motion: string; durationSec: number; render: 'engine' | 'video'; videoSeconds: number }[]
   audio: { voices: { speaker: string; voice: string; text: string }[]; music: string; sfx: string[] }
+  videoClips: VideoClip[]
   mock: boolean
 }
 

@@ -6,6 +6,7 @@ import { stylePrompt } from '@/lib/styles/prompts'
 import { runEpisode, type RunOutcome, type Store } from './orchestrator'
 import { formatCountdown, nextState, type Frequency } from '@/lib/schedule'
 import { pipelineMode, STEPS, type StepKey } from './steps'
+import { videoBudgetFor } from './video-budget'
 
 export class PipelineError extends Error {
   constructor(message: string, public status = 400) { super(message) }
@@ -98,7 +99,7 @@ export async function executeEpisode(payload: Payload, episodeId: string | numbe
           status: 'done', endedAt: new Date().toISOString(), summary: r.summary,
           ...(r.usage && prev ? {
             model: r.usage.model, inputTokens: add(prev.inputTokens, r.usage.inputTokens), cachedTokens: add(prev.cachedTokens, r.usage.cachedTokens),
-            outputTokens: add(prev.outputTokens, r.usage.outputTokens), reasoningTokens: add(prev.reasoningTokens, r.usage.reasoningTokens), costUsd: add(prev.costUsd, r.usage.costUsd),
+            outputTokens: add(prev.outputTokens, r.usage.outputTokens), reasoningTokens: add(prev.reasoningTokens, r.usage.reasoningTokens), costUsd: add(prev.costUsd, r.usage.costUsd), videoSeconds: add(prev.videoSeconds, r.usage.videoSeconds ?? 0),
           } : {}),
         })
       },
@@ -108,14 +109,18 @@ export async function executeEpisode(payload: Payload, episodeId: string | numbe
         const s = await payload.findByID({ collection: 'series', id: seriesId, depth: 0, overrideAccess: true })
         return (s.spentUsd ?? 0) + extra <= (s.costCapUsd ?? 5)
       },
-      addSpend: async (usd) => {
+      addSpend: async (usd, videoSeconds = 0) => {
         const s = await payload.findByID({ collection: 'series', id: seriesId, depth: 0, overrideAccess: true })
-        await payload.update({ collection: 'series', id: seriesId, data: { spentUsd: (s.spentUsd ?? 0) + usd }, overrideAccess: true })
+        await payload.update({
+          collection: 'series', id: seriesId, overrideAccess: true,
+          data: { spentUsd: (s.spentUsd ?? 0) + usd, ...(videoSeconds ? { videoSpentSec: (s.videoSpentSec ?? 0) + videoSeconds } : {}) },
+        })
       },
     }
 
     const mode = pipelineMode()
-    return await runEpisode({ profile: buildProfile(series, cast), seriesId, mode, delayMs: mode === 'mock' ? delayMs : 0 }, store, past.map((e) => e.title ?? '').filter(Boolean))
+    const profile = buildProfile(series, cast)
+    return await runEpisode({ profile, seriesId, mode, delayMs: mode === 'mock' ? delayMs : 0, video: videoBudgetFor(series, profile.durationTargetSec) }, store, past.map((e) => e.title ?? '').filter(Boolean))
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Unknown error'
     console.error('[pipeline] run failed:', message)

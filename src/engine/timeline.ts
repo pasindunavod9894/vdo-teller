@@ -79,10 +79,20 @@ export const ParticlesLayerSchema = z.object({
 
 export const LayerSchema = z.discriminatedUnion('kind', [CharacterLayerSchema, TextLayerSchema, ParticlesLayerSchema])
 
+/** A real-motion clip from the video model. When present it replaces the still background; layers, captions and sound still sit on top. */
+export const ShotVideoSchema = z.object({
+  src: Src,
+  /** skip the first seconds of the clip */
+  startFromSec: z.number().min(0).default(0),
+  playbackRate: z.number().min(0.25).max(4).default(1),
+})
+
 export const ShotSchema = z.object({
   id: z.string(),
   durationSec: z.number().min(0.5),
+  /** still image; also the poster/fallback for a video shot */
   background: Src,
+  video: ShotVideoSchema.optional(),
   camera: CameraSchema.default({ move: 'push-in', intensity: 0.5, handheld: 0.25 }),
   layers: z.array(LayerSchema).default([]),
   transitionIn: z.enum(['cut', 'fade', 'whip']).default('cut'),
@@ -116,6 +126,7 @@ export const TimelineSchema = z.object({
 
 export type Timeline = z.infer<typeof TimelineSchema>
 export type Shot = z.infer<typeof ShotSchema>
+export type ShotVideo = z.infer<typeof ShotVideoSchema>
 export type Layer = z.infer<typeof LayerSchema>
 export type CharacterLayer = z.infer<typeof CharacterLayerSchema>
 export type TimelineInput = z.input<typeof TimelineSchema>

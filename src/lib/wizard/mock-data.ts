@@ -1,4 +1,5 @@
 import { STYLE_CATALOGUE } from '@/lib/styles/catalogue'
+import { tierVideoSeconds } from '@/lib/video'
 
 // Mock option generators for Phase 3. Phase 4 replaces these with the Showrunner agent's research.
 export type Status = 'recommended' | 'suitable' | 'not_suitable'
@@ -130,8 +131,11 @@ export const FREQUENCIES: FrequencyOption[] = [
   { id: 'weekly', name: 'Once a week', perMonth: 4, blurb: 'Lowest cost' },
 ]
 
+// Approximate cost of a 30 s reel (plan §1b): stills + voice + captions + the real-video seconds for the tier (Kling, ~$0.07/s).
+// The real-video seconds come from the same function the pipeline uses, so what the wizard promises is what gets built.
+const realMotion = (tier: 'budget' | 'standard' | 'premium') => `${tierVideoSeconds(tier, 30)} s of real motion per 30 s reel`
 export const QUALITIES: QualityOption[] = [
-  { id: 'budget', name: 'Budget', blurb: 'Core shot types, a shot every ~4 s', output: '720p', costPerReel: 0.4 },
-  { id: 'standard', name: 'Standard', blurb: 'All shot types and the full "real feel" finish', output: '1080p', costPerReel: 0.9 },
-  { id: 'premium', name: 'Premium', blurb: 'More keyframes, richer effects', output: '1080p', costPerReel: 2 },
+  { id: 'budget', name: 'Budget', blurb: `Our animation engine + ${realMotion('budget')} (1–2 action shots)`, output: '720p', costPerReel: 1.5 },
+  { id: 'standard', name: 'Standard', blurb: `Engine + ${realMotion('standard')} (about half the video)`, output: '1080p', costPerReel: 2.5 },
+  { id: 'premium', name: 'Premium', blurb: `Mostly real video: ${realMotion('premium')}`, output: '1080p', costPerReel: 4 },
 ]

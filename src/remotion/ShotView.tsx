@@ -1,5 +1,5 @@
 import React from 'react'
-import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig, Easing } from 'remotion'
+import { AbsoluteFill, Img, interpolate, OffthreadVideo, spring, staticFile, useCurrentFrame, useVideoConfig, Easing } from 'remotion'
 import { frameAt, type CharacterLayer, type Shot } from '../engine/timeline'
 import { clamp01, cycleFrame, energyAt, hopOffset, lerp, squashStretch } from '../engine/motion'
 import { Particles } from './Effects'
@@ -128,7 +128,7 @@ const TextView: React.FC<{ text: string; atSec: number; durationSec: number; pos
 
 export const ShotView: React.FC<{ shot: Shot; frames: number }> = ({ shot, frames }) => {
   const frame = useCurrentFrame()
-  const { width } = useVideoConfig()
+  const { width, fps } = useVideoConfig()
   const cam = useCamera(shot, frames)
 
   // transition into the shot
@@ -143,7 +143,15 @@ export const ShotView: React.FC<{ shot: Shot; frames: number }> = ({ shot, frame
   return (
     <AbsoluteFill style={{ overflow: 'hidden', ...wrapStyle }}>
       <AbsoluteFill style={{ transform: cam.bg, transformOrigin: '50% 50%' }}>
-        <Img src={staticFile(shot.background)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        {shot.video ? (
+          // real-motion clip from the video model (silent; our own voice/music/sfx are mixed separately)
+          <OffthreadVideo
+            src={staticFile(shot.video.src)} muted playbackRate={shot.video.playbackRate}
+            startFrom={Math.round(shot.video.startFromSec * fps)} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        ) : (
+          <Img src={staticFile(shot.background)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        )}
       </AbsoluteFill>
       {shot.layers.filter((l) => l.kind === 'particles').map((l, i) => l.kind === 'particles' && <Particles key={`p${i}`} preset={l.preset} count={l.count} />)}
       <AbsoluteFill style={{ transform: cam.fg, transformOrigin: '50% 80%' }}>

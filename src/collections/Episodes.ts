@@ -31,6 +31,8 @@ export const Episodes: CollectionConfig = {
     { name: 'audio', type: 'json' },
     { name: 'files', type: 'json', admin: { description: 'master + exports (R2 keys / local file names)' } },
     { name: 'costUsd', type: 'number', defaultValue: 0 },
+    { name: 'videoCostUsd', type: 'number', defaultValue: 0 },
+    { name: 'videoClips', type: 'json', admin: { description: 'One entry per real-video shot: shot, model, seconds, costUsd, file, status.' } },
     { name: 'error', type: 'text' },
     { name: 'mode', type: 'text' },
     { name: 'scheduledFor', type: 'date' },
