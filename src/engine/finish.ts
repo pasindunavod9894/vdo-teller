@@ -13,6 +13,18 @@ function ffmpeg(args: string[]): Promise<string> {
 
 export type Loudness = { integrated: number; truePeak: number }
 
+/** Duration in seconds of the video stream of a file. */
+export function videoSeconds(file: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const p = spawn('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=duration', '-of', 'csv=p=0', file])
+    let out = ''
+    p.stdout.on('data', (c) => { out += c })
+    p.on('error', reject)
+    // ffprobe's csv output can carry a trailing comma ("10.000000,") for some files, e.g. ones joined from chunks
+    p.on('close', (code) => { const d = parseFloat(out.trim()); code === 0 && Number.isFinite(d) && d > 0 ? resolve(d) : reject(new Error('Could not read the video duration')) })
+  })
+}
+
 /** Measures integrated loudness (LUFS) and true peak (dBTP) with the EBU R128 filter. */
 export async function measureLoudness(file: string): Promise<Loudness> {
   const log = await ffmpeg(['-hide_banner', '-nostats', '-i', file, '-af', 'ebur128=peak=true', '-f', 'null', '-'])
@@ -36,7 +48,9 @@ export async function normalizeLoudness(file: string, target = -14): Promise<{ b
   const m = JSON.parse(json) as Record<string, string>
   const pass2 = `${base}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`
   const tmp = `${file}.norm.mp4`
-  await ffmpeg(['-y', '-v', 'error', '-i', file, '-c:v', 'copy', '-af', pass2, '-c:a', 'aac', '-b:a', '192k', tmp])
+  // the loudnorm filter flushes a little padding at the end; pin the output to the video's own length so no silent tail remains
+  const seconds = await videoSeconds(file)
+  await ffmpeg(['-y', '-v', 'error', '-i', file, '-c:v', 'copy', '-af', pass2, '-c:a', 'aac', '-b:a', '192k', '-t', seconds.toFixed(3), tmp])
   fs.renameSync(tmp, file)
   return { before, after: await measureLoudness(file) }
 }
