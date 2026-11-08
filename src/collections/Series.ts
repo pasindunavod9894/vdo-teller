@@ -34,6 +34,7 @@ export const Series: CollectionConfig = {
     { name: 'qualityTier', type: 'select', options: ['budget', 'standard', 'premium'], defaultValue: 'standard', required: true },
     { name: 'aspect', type: 'select', options: ['9:16', '16:9', '1:1', '4:5'], defaultValue: '9:16', required: true },
     { name: 'theme', type: 'json' },
+    { name: 'heroImage', type: 'upload', relationTo: 'media' },
     { name: 'folderLinked', type: 'checkbox', defaultValue: false },
     { name: 'status', type: 'select', options: ['draft', 'active', 'paused', 'removed'], defaultValue: 'draft', required: true },
     { name: 'costCapUsd', type: 'number', defaultValue: 5 },

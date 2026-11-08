@@ -226,6 +226,7 @@ export interface Series {
     | number
     | boolean
     | null;
+  heroImage?: (number | null) | Media;
   folderLinked?: boolean | null;
   status: 'draft' | 'active' | 'paused' | 'removed';
   costCapUsd?: number | null;
@@ -565,6 +566,7 @@ export interface SeriesSelect<T extends boolean = true> {
   qualityTier?: T;
   aspect?: T;
   theme?: T;
+  heroImage?: T;
   folderLinked?: T;
   status?: T;
   costCapUsd?: T;

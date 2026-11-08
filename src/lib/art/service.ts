@@ -6,6 +6,8 @@ import type { Payload } from 'payload'
 import type { Character, Series, User } from '@/payload-types'
 import { MODELS } from '@/agents/models'
 import { stylePrompt } from '@/lib/styles/prompts'
+import { heuristicTheme, isTheme, type Theme } from '@/themes/palettes'
+import { pickTheme } from '@/lib/theme/pick'
 import { assetPlan, IMAGE_COST, QUALITY_FOR_TIER, specKey, type Quality } from './plan'
 
 const client = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -148,4 +150,38 @@ export async function createNextAsset(payload: Payload, user: User, characterId:
   else pack = await payload.create({ collection: 'asset-packs', data: { owner: user.id, character: character.id, items }, overrideAccess: true })
   await addSpend(payload, series, cost)
   return { done: false as const, kind: next.kind, name: next.name, url: media.url, cost }
+}
+
+
+async function loadOwnedSeries(payload: Payload, user: User, seriesId: string | number) {
+  const series = await payload.findByID({ collection: 'series', id: seriesId, depth: 0, overrideAccess: true }).catch(() => null)
+  if (!series || (typeof series.owner === 'object' ? series.owner.id : series.owner) !== user.id) throw new ArtError('Series not found', 404)
+  return series
+}
+
+/** Picks (or re-picks) the dashboard theme. One cheap text call; saved on the series. */
+export async function ensureTheme(payload: Payload, user: User, seriesId: string | number, force = false) {
+  const series = await loadOwnedSeries(payload, user, seriesId)
+  if (!force && isTheme(series.theme)) return series.theme as Theme
+  const theme = await pickTheme({ title: series.title, niche: series.niche, subNiche: series.subNiche, style: series.style })
+  await payload.update({ collection: 'series', id: series.id, data: { theme: theme as unknown as Record<string, unknown> }, overrideAccess: true })
+  return theme
+}
+
+/** Wide banner for the dashboard hero, in the series style. Counts against the series cost cap. */
+export async function createHero(payload: Payload, user: User, seriesId: string | number) {
+  const series = await loadOwnedSeries(payload, user, seriesId)
+  const quality = qualityOf(series)
+  const cost = IMAGE_COST[quality]
+  assertBudget(series, cost)
+  const theme = isTheme(series.theme) ? series.theme : heuristicTheme(`${series.niche} ${series.subNiche ?? ''}`, series.style)
+  const scene = theme.heroPrompt || `A wide establishing scene for a ${series.niche} video series`
+  const prompt = `Wide cinematic banner illustration. ${scene} Art style: ${stylePrompt(series.style)}. Colour mood: ${theme.mood}. Leave calm negative space on the left third. No text, no logos, no people, no brands.`
+  const img = await withRetry(() => client().images.generate({ model: 'gpt-image-2', prompt, size: '1536x1024', quality, n: 1 }))
+  const b64 = img.data?.[0]?.b64_json
+  if (!b64) throw new ArtError('Image generation returned nothing', 502)
+  const media = await saveImage(payload, b64, `hero-${series.id}`, `${series.title} banner`)
+  await payload.update({ collection: 'series', id: series.id, data: { heroImage: media.id }, overrideAccess: true })
+  await addSpend(payload, series, cost)
+  return { url: media.url, cost }
 }

@@ -42,7 +42,7 @@ export function AuthForm({ mode }: { mode: 'signup' | 'login' }) {
         w.reset()
         router.push(`/dashboard/${doc.id}`)
       } else {
-        router.push('/start')
+        router.push('/dashboard') // sends users with no series to the wizard
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')

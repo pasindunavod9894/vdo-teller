@@ -50,3 +50,18 @@
   * { @apply border-border; }
   body { @apply bg-background text-foreground; }
 }
+
+@theme inline {
+  --color-accent2: var(--accent2);
+}
+
+/* Niche theme (set per series via CSS variables on the wrapper) */
+[data-series-theme] {
+  font-family: var(--font-body, inherit);
+}
+[data-series-theme] h1,
+[data-series-theme] h2,
+[data-series-theme] h3,
+[data-series-theme] .font-heading {
+  font-family: var(--font-heading, inherit);
+}
