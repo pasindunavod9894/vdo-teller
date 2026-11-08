@@ -101,7 +101,9 @@ describe('local folder', () => {
 
 describe('series actions', () => {
   it('maps each action to a small, safe change', () => {
-    expect(seriesPatch('link-folder')).toEqual({ folderLinked: true, status: 'active' })
+    expect(seriesPatch('link-folder')).toEqual({ folderLinked: true })
+    expect(seriesPatch('pause')).toEqual({ status: 'paused' })
+    expect(seriesPatch('resume')).toEqual({ status: 'active' })
     expect(seriesPatch('unlink-folder')).toEqual({ folderLinked: false })
     expect(seriesPatch('remove')).toEqual({ status: 'removed' })
     expect(seriesPatch('restore')).toEqual({ status: 'active' })

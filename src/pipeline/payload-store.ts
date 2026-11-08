@@ -8,6 +8,7 @@ import { formatCountdown, nextState, type Frequency } from '@/lib/schedule'
 import { pipelineMode, STEPS, type StepKey } from './steps'
 import { videoBudgetFor } from './video-budget'
 import { buildMediaCtx } from './media-setup'
+import { dailyCapUsd, DAY_MS } from './scheduler'
 
 export class PipelineError extends Error {
   constructor(message: string, public status = 400) { super(message) }
@@ -43,6 +44,9 @@ export async function startEpisode(payload: Payload, user: User, seriesId: strin
     }
   }
   if ((series.spentUsd ?? 0) >= (series.costCapUsd ?? 5)) throw new PipelineError('The cost cap for this series is reached.', 402)
+  // Per-user daily limit across all their series (plan §3b), for manual and scheduled runs alike.
+  const cap = dailyCapUsd()
+  if ((await ownerSpentSince(payload, user.id, new Date(Date.now() - DAY_MS))) >= cap) throw new PipelineError(`The daily cost limit ($${cap.toFixed(2)}) is reached. Try again tomorrow.`, 402)
   // Same lock as the dashboard card (plan §7): the next episode unlocks one interval after the last one.
   // Failed episodes do not count, so a failed run can be retried right away.
   const { docs: last } = await payload.find({ collection: 'episodes', where: { and: [{ series: { equals: series.id } }, { status: { not_equals: 'failed' } }] }, sort: '-createdAt', limit: 1, depth: 0, overrideAccess: true })
@@ -131,6 +135,16 @@ export async function executeEpisode(payload: Payload, episodeId: string | numbe
     console.error('[pipeline] run failed:', message)
     await payload.update({ collection: 'episodes', id: episodeId, data: { status: 'failed', error: message }, overrideAccess: true }).catch(() => {})
     return { status: 'failed', reason: message, costUsd: 0 }
+  }
+}
+
+/** What a user's episodes cost since `since` (all their series together), for the daily cost cap. */
+export async function ownerSpentSince(payload: Payload, ownerId: string | number, since: Date): Promise<number> {
+  let total = 0
+  for (let page = 1; ; page++) {
+    const r = await payload.find({ collection: 'episodes', where: { and: [{ owner: { equals: ownerId } }, { createdAt: { greater_than: since.toISOString() } }] }, limit: 200, page, depth: 0, overrideAccess: true })
+    for (const e of r.docs) total += e.costUsd ?? 0
+    if (!r.hasNextPage) return total
   }
 }
 

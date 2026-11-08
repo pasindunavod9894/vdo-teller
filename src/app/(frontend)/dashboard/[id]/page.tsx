@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { getPayload } from 'payload'
 import config from '@payload-config'
 import { CastPanel } from '@/components/dashboard/cast-panel'
+import { AutoToggle } from '@/components/dashboard/auto-toggle'
 import { DashHeader } from '@/components/dashboard/header'
 import { ExportMenu } from '@/components/dashboard/export-menu'
 import { Hero } from '@/components/dashboard/hero'
@@ -79,7 +80,10 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
         <section aria-labelledby="library">
           <div className="mb-4 flex items-center justify-between">
             <h2 id="library" className="text-2xl font-semibold">Video library</h2>
-            <ExportMenu enabled={episodeCount > 0} main={series.aspect} />
+            <div className="flex flex-wrap items-center gap-2">
+              <AutoToggle seriesId={series.id} paused={series.status === 'paused'} />
+              <ExportMenu enabled={episodeCount > 0} main={series.aspect} />
+            </div>
           </div>
           <LibraryGrid
             seriesId={series.id}
