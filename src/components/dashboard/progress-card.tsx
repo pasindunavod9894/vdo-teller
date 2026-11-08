@@ -49,7 +49,7 @@ export function ProgressCard({ episodeId, onFinished, onDismiss }: { episodeId: 
           <h3 className="text-lg font-semibold">{title}</h3>
           <p className="text-sm text-muted-foreground">
             {data?.episode.title && data.episode.title !== 'New episode' ? `“${data.episode.title}” · ` : ''}{done}/{total} steps
-            {data?.episode.mode === 'mock' && ' · practice run (no media is generated yet)'}
+            {data?.episode.mode === 'mock' && ' · practice run (sample script, no paid AI used)'}
           </p>
         </div>
         {status !== 'running' && (

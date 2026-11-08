@@ -1,6 +1,12 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "web", "runtimeExecutable": "pnpm", "runtimeArgs": ["dev"], "port": 3000 }
+    { "name": "web", "runtimeExecutable": "pnpm", "runtimeArgs": ["dev"], "port": 3000 },
+    {
+      "name": "web-free",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["OPENAI_API_KEY=", "FAL_KEY=", "MEDIA_PROVIDER=mock", "VIDEO_PROVIDER=mock", "PIPELINE_MODE=mock", "pnpm", "dev"],
+      "port": 3000
+    }
   ]
 }
