@@ -6,7 +6,7 @@ import { CastPanel } from '@/components/dashboard/cast-panel'
 import { DashHeader } from '@/components/dashboard/header'
 import { ExportMenu } from '@/components/dashboard/export-menu'
 import { Hero } from '@/components/dashboard/hero'
-import { NextEpisodeCard } from '@/components/dashboard/next-episode-card'
+import { LibraryGrid } from '@/components/dashboard/library-grid'
 import { ThemeBootstrap } from '@/components/dashboard/theme-bootstrap'
 import { STYLE_CATALOGUE } from '@/lib/styles/catalogue'
 import { IMAGE_COST, QUALITY_FOR_TIER } from '@/lib/art/plan'
@@ -21,8 +21,9 @@ const VOICE_LABEL: Record<string, string> = {
 }
 const FORMAT_LABEL: Record<string, string> = { 'story-reel': 'Story episode', 'quick-reel': 'Quick reel', 'long-form': 'Long-form' }
 
-export default async function Dashboard({ params }: { params: Promise<{ id: string }> }) {
+export default async function Dashboard({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ start?: string }> }) {
   const { id } = await params
+  const { start } = await searchParams
   const payload = await getPayload({ config })
   const { user } = await payload.auth({ headers: await nextHeaders() })
   if (!user) redirect('/login')
@@ -80,15 +81,19 @@ export default async function Dashboard({ params }: { params: Promise<{ id: stri
             <h2 id="library" className="text-2xl font-semibold">Video library</h2>
             <ExportMenu enabled={episodeCount > 0} main={series.aspect} />
           </div>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {episodes.map((e) => (
-              <div key={e.id} className="aspect-[9/16] max-h-80 rounded-[var(--radius)] border border-border bg-card p-3 text-sm">
-                <div className="font-medium">{e.title || `Episode ${e.id}`}</div>
-                <div className="text-xs text-muted-foreground">{e.status}</div>
-              </div>
-            ))}
-            <NextEpisodeCard frequency={series.frequency as Frequency} lastEpisodeAt={lastEpisodeAt} />
-          </div>
+          <LibraryGrid
+            seriesId={series.id}
+            frequency={series.frequency as Frequency}
+            lastEpisodeAt={lastEpisodeAt}
+            runningEpisodeId={episodes.find((e) => e.status === 'running')?.id ?? null}
+            autoStart={start === '1'}
+            episodes={episodes.map((e) => ({
+              id: e.id,
+              title: e.title ?? '',
+              status: e.status,
+              hook: e.idea && typeof e.idea === 'object' ? ((e.idea as { hook?: string }).hook ?? null) : null,
+            }))}
+          />
           {episodeCount === 0 && <p className="mt-3 text-sm text-muted-foreground">Your videos will appear here and play in this library.</p>}
         </section>
 

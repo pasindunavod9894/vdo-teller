@@ -40,7 +40,7 @@ export function AuthForm({ mode }: { mode: 'signup' | 'login' }) {
         })
         for (const c of w.characters) await api('characters', { series: doc.id, name: c.name, role: c.role, bible: { look: c.look, personality: c.personality }, voiceProfile: c.voice ?? undefined })
         w.reset()
-        router.push(`/dashboard/${doc.id}`)
+        router.push(`/dashboard/${doc.id}?start=1`)
       } else {
         router.push('/dashboard') // sends users with no series to the wizard
       }

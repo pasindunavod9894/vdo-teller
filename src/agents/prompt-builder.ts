@@ -1,4 +1,5 @@
 import type { AgentName, SeriesProfile, VoiceMode } from './profile'
+import { stylePrompt } from '@/lib/styles/prompts'
 
 /**
  * Builds an agent's prompt in a fixed, cache-friendly order (plan §3b):
@@ -68,7 +69,7 @@ const VOICE_RULES: Record<VoiceMode, Partial<Matrix>> = {
 export function renderProfile(p: SeriesProfile): string {
   const lines = [
     `Niche: ${p.niche}${p.subNiche ? ` / ${p.subNiche}` : ''}`,
-    `Visual style: ${p.style.id}${p.style.promptTemplate ? ` - ${p.style.promptTemplate}` : ''}`,
+    `Visual style (describe by look only): ${p.style.promptTemplate ?? stylePrompt(p.style.id)}`,
     `Format: ${p.format}, target ${p.durationTargetSec}s, aspect ${p.aspect}, quality ${p.qualityTier}`,
     `Voice mode: ${p.voiceMode}`,
     `Language: ${p.language ?? 'en'}; audience: ${p.audience ?? 'general'}`,

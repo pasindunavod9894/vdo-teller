@@ -339,6 +339,8 @@ export interface Episode {
     | boolean
     | null;
   costUsd?: number | null;
+  error?: string | null;
+  mode?: string | null;
   scheduledFor?: string | null;
   updatedAt: string;
   createdAt: string;
@@ -352,6 +354,9 @@ export interface PipelineStep {
   owner: number | User;
   episode: number | Episode;
   agent: string;
+  stepKey: string;
+  label?: string | null;
+  order: number;
   status: 'pending' | 'running' | 'done' | 'failed';
   startedAt?: string | null;
   endedAt?: string | null;
@@ -614,6 +619,8 @@ export interface EpisodesSelect<T extends boolean = true> {
   audio?: T;
   files?: T;
   costUsd?: T;
+  error?: T;
+  mode?: T;
   scheduledFor?: T;
   updatedAt?: T;
   createdAt?: T;
@@ -626,6 +633,9 @@ export interface PipelineStepsSelect<T extends boolean = true> {
   owner?: T;
   episode?: T;
   agent?: T;
+  stepKey?: T;
+  label?: T;
+  order?: T;
   status?: T;
   startedAt?: T;
   endedAt?: T;

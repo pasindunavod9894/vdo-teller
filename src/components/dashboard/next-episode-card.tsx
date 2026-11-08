@@ -1,9 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { Lock, Play, Sparkles } from 'lucide-react'
+import { Loader2, Lock, Play, Sparkles } from 'lucide-react'
 import { FREQUENCY_LABEL, formatCountdown, nextState, type Frequency } from '@/lib/schedule'
 
-export function NextEpisodeCard({ frequency, lastEpisodeAt }: { frequency: Frequency; lastEpisodeAt: string | null }) {
+export function NextEpisodeCard({ frequency, lastEpisodeAt, onGenerate, busy }: { frequency: Frequency; lastEpisodeAt: string | null; onGenerate: () => void; busy: boolean }) {
   const last = lastEpisodeAt ? new Date(lastEpisodeAt) : null
   const [now, setNow] = useState<Date | null>(null)
   useEffect(() => { setNow(new Date()); const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t) }, [])
@@ -19,10 +19,10 @@ export function NextEpisodeCard({ frequency, lastEpisodeAt }: { frequency: Frequ
       <p className="text-xs text-muted-foreground">
         {locked && s ? <>Unlocks in <span className="font-mono text-foreground">{formatCountdown(s.remainingMs)}</span><br />Posting {FREQUENCY_LABEL[frequency]}</> : `Posting ${FREQUENCY_LABEL[frequency]}`}
       </p>
-      <button disabled title="Video generation arrives with the next release" className="flex items-center gap-2 rounded-full bg-accent px-4 py-1.5 text-sm text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40">
-        <Play className="size-4" /> Generate
+      <button onClick={onGenerate} disabled={busy || !s || locked} className="flex items-center gap-2 rounded-full bg-accent px-4 py-1.5 text-sm text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50">
+        {busy ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} Generate
       </button>
-      <p className="text-[11px] text-muted-foreground">Generation is coming soon.</p>
+      {locked && <p className="text-[11px] text-muted-foreground">Unlocks automatically; when deployed it generates by itself.</p>}
     </div>
   )
 }
