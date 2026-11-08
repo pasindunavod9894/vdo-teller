@@ -40,6 +40,8 @@ export type BuildInput = {
   /** per video shot: the still the clip was made from, used as a poster */
   stills: Record<number, string>
   sfx: { whoosh: string; hiss: string; thud: string }
+  /** background music: a file name and its level (it is ducked under speech when mixed) */
+  music?: { src: string; volume: number } | null
 }
 
 export type BuildResult = { timeline: Timeline; notes: string[]; durationSec: number; shotStarts: number[] }
@@ -207,7 +209,7 @@ export function buildTimeline(input: BuildInput): BuildResult {
   const timeline = TimelineSchema.parse({
     fps, width: input.width ?? 1080, height: input.height ?? 1920,
     look: { ...(input.look ?? { grade: 'warm', grain: 0.15, vignette: 0.32 }), captionPosition: 'top' },
-    shots, voices, sfx, captions, music: null,
+    shots, voices, sfx, captions, music: input.music ?? null,
   })
 
   return { timeline, notes, durationSec: t, shotStarts: planned.map((p) => p.start) }

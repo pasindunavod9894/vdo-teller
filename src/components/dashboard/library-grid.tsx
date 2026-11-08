@@ -4,13 +4,14 @@ import { usePathname, useRouter } from 'next/navigation'
 import { NextEpisodeCard } from './next-episode-card'
 import { ProgressCard } from './progress-card'
 import { FolderBar } from './folder-bar'
+import { ExportMenu, type ExportInfo } from './export-menu'
 import { useLocalFolder } from '@/lib/local-folder/use-local-folder'
 import type { Frequency } from '@/lib/schedule'
 
-export type EpisodeCard = { id: number | string; title: string; status: string; hook: string | null; hasVideo: boolean; meta?: unknown }
+export type EpisodeCard = { id: number | string; title: string; status: string; hook: string | null; hasVideo: boolean; meta?: unknown; exports?: ExportInfo }
 
-export function LibraryGrid({ seriesId, title, frequency, lastEpisodeAt, episodes, runningEpisodeId, autoStart }: {
-  seriesId: number | string; title: string; frequency: Frequency; lastEpisodeAt: string | null
+export function LibraryGrid({ seriesId, title, aspect, tier, frequency, lastEpisodeAt, episodes, runningEpisodeId, autoStart }: {
+  seriesId: number | string; title: string; aspect: string; tier: string; frequency: Frequency; lastEpisodeAt: string | null
   episodes: EpisodeCard[]; runningEpisodeId: number | string | null; autoStart: boolean
 }) {
   const router = useRouter()
@@ -37,7 +38,8 @@ export function LibraryGrid({ seriesId, title, frequency, lastEpisodeAt, episode
 
   // The folder where videos are saved. Generation starts only once it is chosen (plan §6).
   const folder = useLocalFolder({
-    seriesId, title, episodes,
+    seriesId, title,
+    episodes: episodes.map((e) => ({ ...e, exports: Object.entries(e.exports ?? {}).filter(([, v]) => v?.status === 'ready').map(([k]) => k) })),
     onLinked: () => { if (pendingAuto.current) { pendingAuto.current = false; generate() } },
   })
 
@@ -71,6 +73,7 @@ export function LibraryGrid({ seriesId, title, frequency, lastEpisodeAt, episode
             )}
             <div className="font-medium">{e.title || `Episode ${e.id}`}</div>
             <div className="text-xs text-muted-foreground">{e.status === 'done' ? (e.hasVideo ? 'Ready' : 'Ready (practice run)') : e.status}</div>
+            {e.hasVideo && <ExportMenu episodeId={e.id} main={aspect} tier={tier} initial={e.exports ?? {}} />}
             {e.hook && !e.hasVideo && <p className="mt-1 line-clamp-5 text-xs text-muted-foreground">{e.hook}</p>}
           </div>
         ))}

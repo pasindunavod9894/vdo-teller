@@ -24,7 +24,7 @@ export async function openSeriesDir(picked: DirLike, title: string): Promise<Dir
   return root.getDirectoryHandle(slugify(title), { create: true })
 }
 
-export const episodeFileName = (ep: { id: number | string; title: string }) => `episode-${ep.id}-${slugify(ep.title || 'episode')}.mp4`
+export const episodeFileName = (ep: { id: number | string; title: string }, aspect?: string) => `episode-${ep.id}-${slugify(ep.title || 'episode')}${aspect ? `-${aspect.replace(':', 'x')}` : ''}.mp4`
 
 export type FolderErrorKind = 'missing' | 'denied' | 'cancelled' | 'other'
 export function classifyFolderError(e: unknown): FolderErrorKind {
@@ -56,23 +56,22 @@ export async function listVideos(dir: DirLike): Promise<Set<string>> {
   return names
 }
 
-export type SyncEpisode = { id: number | string; title: string; hasVideo: boolean; meta?: unknown }
+export type SyncEpisode = { id: number | string; title: string; hasVideo: boolean; meta?: unknown; /** aspect ratios whose export is ready, saved next to the main video */ exports?: string[] }
 export type SyncResult = { saved: (number | string)[]; failed: { id: number | string; message: string }[] }
 
 /**
  * Copies every finished episode that is not in the folder yet, one at a time. A file is only visible once it is fully
  * written (the browser commits on close), so an interrupted download never leaves a broken video behind.
  */
-export async function syncEpisodes(dir: DirLike, episodes: SyncEpisode[], download: (id: number | string) => Promise<Response>): Promise<SyncResult> {
+export async function syncEpisodes(dir: DirLike, episodes: SyncEpisode[], download: (id: number | string, aspect?: string) => Promise<Response>): Promise<SyncResult> {
   const have = await listVideos(dir)
   const result: SyncResult = { saved: [], failed: [] }
-  for (const ep of episodes) {
-    if (!ep.hasVideo || have.has(episodeFileName(ep))) continue
-    let out: WritableLike | null = null
+
+  // writes one response into one file; the file only appears once fully written
+  async function save(name: string, res: Response) {
+    if (!res.ok || !res.body) throw new Error(`The server answered ${res.status}`)
+    const out = await (await dir.getFileHandle(name, { create: true })).createWritable()
     try {
-      const res = await download(ep.id)
-      if (!res.ok || !res.body) throw new Error(`The server answered ${res.status}`)
-      out = await (await dir.getFileHandle(episodeFileName(ep), { create: true })).createWritable()
       const reader = res.body.getReader()
       for (;;) {
         const { done, value } = await reader.read()
@@ -80,15 +79,28 @@ export async function syncEpisodes(dir: DirLike, episodes: SyncEpisode[], downlo
         await out.write(value)
       }
       await out.close()
-      out = null
-      if (ep.meta !== undefined) {
-        const meta = await (await dir.getFileHandle(`episode-${ep.id}-${slugify(ep.title || 'episode')}.json`, { create: true })).createWritable()
-        await meta.write(new TextEncoder().encode(JSON.stringify(ep.meta, null, 2)))
-        await meta.close()
-      }
-      result.saved.push(ep.id)
     } catch (e) {
-      await out?.abort?.().catch(() => {})
+      await out.abort?.().catch(() => {})
+      throw e
+    }
+  }
+
+  for (const ep of episodes) {
+    if (!ep.hasVideo) continue
+    try {
+      if (!have.has(episodeFileName(ep))) {
+        await save(episodeFileName(ep), await download(ep.id))
+        if (ep.meta !== undefined) {
+          const meta = await (await dir.getFileHandle(`episode-${ep.id}-${slugify(ep.title || 'episode')}.json`, { create: true })).createWritable()
+          await meta.write(new TextEncoder().encode(JSON.stringify(ep.meta, null, 2)))
+          await meta.close()
+        }
+        result.saved.push(ep.id)
+      }
+      for (const a of ep.exports ?? []) {
+        if (!have.has(episodeFileName(ep, a))) await save(episodeFileName(ep, a), await download(ep.id, a))
+      }
+    } catch (e) {
       if (classifyFolderError(e) === 'missing') throw e // the whole folder is gone: let the caller handle that
       result.failed.push({ id: ep.id, message: e instanceof Error ? e.message : 'Could not save' })
     }

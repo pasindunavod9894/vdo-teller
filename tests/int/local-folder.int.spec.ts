@@ -67,6 +67,19 @@ describe('local folder', () => {
     expect(calls).toBe(2) // nothing is downloaded twice
   })
 
+  it('also saves ready exports next to the main video, once', async () => {
+    const dir = memDir()
+    const asked: string[] = []
+    const dl = async (id: number | string, aspect?: string) => { asked.push(`${id}${aspect ? `@${aspect}` : ''}`); return new Response(new Uint8Array([1])) }
+    const eps = [{ id: 4, title: 'Plan', hasVideo: true, exports: ['16:9'] }]
+    await syncEpisodes(dir, eps, dl)
+    expect([...(await listVideos(dir))].sort()).toEqual(['episode-4-plan-16x9.mp4', 'episode-4-plan.mp4'])
+    expect(episodeFileName({ id: 4, title: 'Plan' }, '4:5')).toBe('episode-4-plan-4x5.mp4')
+    // an export that becomes ready later is added without downloading the main video again
+    await syncEpisodes(dir, [{ ...eps[0], exports: ['16:9', '1:1'] }], dl)
+    expect(asked).toEqual(['4', '4@16:9', '4@1:1'])
+  })
+
   it('reports a failed download or write without stopping the others', async () => {
     const dir = memDir()
     dir.state.failWriteFor = 'bad'

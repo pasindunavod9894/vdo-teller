@@ -26,7 +26,7 @@ export function useLocalFolder(opts: { seriesId: number | string; title: string;
 
   // what is in the library that should be on disk: re-sync only when a finished video is added
   const episodes = opts.episodes
-  const syncKey = useMemo(() => episodes.filter((e) => e.hasVideo).map((e) => e.id).join(','), [episodes])
+  const syncKey = useMemo(() => episodes.filter((e) => e.hasVideo).map((e) => `${e.id}:${(e.exports ?? []).join('+')}`).join(','), [episodes])
 
   const inspect = useCallback(async () => {
     if (!picker()) { setStatus('unsupported'); return }
@@ -78,7 +78,7 @@ export function useLocalFolder(opts: { seriesId: number | string; title: string;
     ;(async () => {
       setSyncing(true)
       try {
-        const r = await syncEpisodes(dir, episodes, (id) => fetch(`/api/episodes/${id}/video`))
+        const r = await syncEpisodes(dir, episodes, (id, aspect) => fetch(`/api/episodes/${id}/video${aspect ? `?aspect=${encodeURIComponent(aspect)}` : ''}`))
         if (r.failed.length) setError(`${r.failed.length} video(s) could not be saved: ${r.failed[0].message}`)
         const next: Record<string, string> = {}
         for (const e of episodes) {

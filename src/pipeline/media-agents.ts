@@ -6,6 +6,7 @@ import { scrubText } from './brand-safety'
 import { buildTimeline, speechInfoFrom, type SpeechInfo } from './timeline-builder'
 import { produceVideoShots } from './video-shots'
 import { ensureSfx } from '../engine/sfx'
+import { ensureMusic, moodFor } from '../engine/music'
 import { rmsPerFrame } from '../engine/lipsync'
 import { normalizeLoudness, videoSeconds } from '../engine/finish'
 import { compositeScene } from '../media/scene-still'
@@ -126,10 +127,14 @@ export async function animatorMedia(ctx: Ctx, m: MediaCtx, script: Script, shots
     for (const n of r.fallbackShots) notes.push(`shot ${n} fell back to the engine`)
   }
 
-  // 3. the engine timeline
+  // 3. background music in a mood that suits the niche; louder when nobody speaks, and ducked under speech by the mixer
+  const mood = moodFor(ctx.profile.niche, ctx.profile.subNiche)
+  const music = { src: ensureMusic(mood, assetsDir), volume: voices.length ? 0.16 : 0.3 }
+
+  // 4. the engine timeline
   const built = buildTimeline({
     fps: m.fps, width: m.width, height: m.height, script, shots: shots.shots,
-    kits: m.kits, speech, plates: m.state.plates, fallbackPlate: Object.values(m.state.plates)[0] ?? '', clips, stills: m.state.stills, sfx,
+    kits: m.kits, speech, plates: m.state.plates, fallbackPlate: Object.values(m.state.plates)[0] ?? '', clips, stills: m.state.stills, sfx, music,
   })
   m.state.engine = built.timeline
   fs.writeFileSync(path.join(m.ws.episodeDir, 'timeline.json'), JSON.stringify(built.timeline, null, 2))
@@ -142,7 +147,7 @@ export async function animatorMedia(ctx: Ctx, m: MediaCtx, script: Script, shots
       motion: s.video ? `real motion (${ctx.video.model})` : s.layers.some((l) => l.kind === 'character') ? 'character animation' : 'camera only',
       durationSec: s.durationSec, render: s.video ? 'video' : 'engine', videoSeconds: s.video ? (clips[shots.shots[i]?.n]?.seconds ?? 0) : 0,
     })),
-    audio: { voices, music: 'none yet', sfx: [...new Set(built.timeline.sfx.map((x) => x.src))] },
+    audio: { voices, music: `${mood} loop (generated)`, sfx: [...new Set(built.timeline.sfx.map((x) => x.src))] },
     videoClips, mock: false,
   }
   const summary = `${timeline.durationSec}s timeline · ${voices.length} voiced lines · ${Object.keys(clips).length}/${videoShots.length} video clips${notes.length ? ` · ${notes.slice(0, 3).join('; ')}` : ''}`

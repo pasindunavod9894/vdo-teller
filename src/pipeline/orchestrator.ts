@@ -3,6 +3,7 @@ import type { AgentResult, Ctx, Usage } from './agents'
 import type { Critique, Idea, Script } from './schemas'
 import { MAX_REVISION_ROUNDS, type StepKey } from './steps'
 import { videoCostUsd } from '../lib/video'
+import { platformMetas } from './publish-meta'
 
 /**
  * The Orchestrator (plan §3): splits the episode into steps, calls each sub-agent, keeps the state, enforces the
@@ -98,7 +99,7 @@ export async function runEpisode(baseCtx: Ctx, store: Store, previousTitles: str
     const videoUsd = timeline.videoClips.reduce((n, c) => n + c.costUsd, 0)
     // the Animator already reports its video spend in its usage, so `cost` includes it
     const master = ctx.media?.state.master
-    await store.episodePatch({ status: 'done', files: { publish, ...(master ? { master } : { mockRender: true }) }, costUsd: cost, videoCostUsd: videoUsd })
+    await store.episodePatch({ status: 'done', files: { publish: { ...publish, platforms: platformMetas(publish) }, ...(master ? { master } : { mockRender: true }) }, costUsd: cost, videoCostUsd: videoUsd })
     return { status: 'done', costUsd: cost }
   } catch (e) {
     const message = e instanceof BudgetError ? 'Cost cap reached.' : e instanceof Error ? e.message : 'Unknown error'

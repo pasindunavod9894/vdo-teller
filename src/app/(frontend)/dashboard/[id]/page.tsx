@@ -5,7 +5,6 @@ import config from '@payload-config'
 import { CastPanel } from '@/components/dashboard/cast-panel'
 import { AutoToggle } from '@/components/dashboard/auto-toggle'
 import { DashHeader } from '@/components/dashboard/header'
-import { ExportMenu } from '@/components/dashboard/export-menu'
 import { Hero } from '@/components/dashboard/hero'
 import { LibraryGrid } from '@/components/dashboard/library-grid'
 import { ThemeBootstrap } from '@/components/dashboard/theme-bootstrap'
@@ -82,12 +81,13 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
             <h2 id="library" className="text-2xl font-semibold">Video library</h2>
             <div className="flex flex-wrap items-center gap-2">
               <AutoToggle seriesId={series.id} paused={series.status === 'paused'} />
-              <ExportMenu enabled={episodeCount > 0} main={series.aspect} />
             </div>
           </div>
           <LibraryGrid
             seriesId={series.id}
             title={series.title}
+            aspect={series.aspect}
+            tier={series.qualityTier}
             frequency={series.frequency as Frequency}
             lastEpisodeAt={lastEpisodeAt}
             runningEpisodeId={episodes.find((e) => e.status === 'running')?.id ?? null}
@@ -98,6 +98,7 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
               status: e.status,
               hasVideo: Boolean((e.files as { master?: string } | null)?.master),
               meta: (e.files as { publish?: unknown } | null)?.publish,
+              exports: Object.fromEntries(Object.entries(((e.files as { exports?: Record<string, { status: string; error?: string }> } | null)?.exports) ?? {}).map(([k, v]) => [k, { status: v.status, error: v.error }])),
               hook: e.idea && typeof e.idea === 'object' ? ((e.idea as { hook?: string }).hook ?? null) : null,
             }))}
           />

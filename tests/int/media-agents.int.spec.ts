@@ -98,6 +98,8 @@ describe('Animator with media', () => {
     expect(m.state.engine!.voices).toHaveLength(lines)
     expect(m.state.engine!.captions).toHaveLength(lines)
     expect(fs.existsSync(path.join(ws.episodeDir, 'timeline.json'))).toBe(true)
+    expect(m.state.engine!.music).toMatchObject({ src: 'music-playful.wav', volume: 0.16 }) // niche: Cat videos
+    expect(fs.existsSync(path.join(ws.assetsDir, 'music-playful.wav'))).toBe(true)
     const videoShots = shots.shots.filter((x) => x.render === 'video')
     expect(videoShots.length).toBeGreaterThan(0)
     expect(m.state.engine!.shots.filter((x) => x.video)).toHaveLength(videoShots.length)
@@ -124,6 +126,7 @@ describe('Animator with media', () => {
     const r = await agents.animator(ctx, s, shots)
     expect(r.output.audio.voices).toHaveLength(0)
     expect(m.state.engine!.voices).toHaveLength(0)
+    expect(m.state.engine!.music!.volume).toBe(0.3) // music carries a no-voice episode
     expect(m.state.engine!.shots.some((x) => x.layers.some((l) => l.kind === 'text'))).toBe(true)
   })
 

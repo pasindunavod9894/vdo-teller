@@ -3,6 +3,7 @@ import { AbsoluteFill, Img, interpolate, OffthreadVideo, spring, staticFile, use
 import { frameAt, type CharacterLayer, type Shot } from '../engine/timeline'
 import { clamp01, cycleFrame, energyAt, hopOffset, lerp, squashStretch } from '../engine/motion'
 import { Particles } from './Effects'
+import { isWide } from '../engine/aspect'
 
 const easeInOut = Easing.inOut(Easing.cubic)
 
@@ -128,7 +129,8 @@ const TextView: React.FC<{ text: string; atSec: number; durationSec: number; pos
 
 export const ShotView: React.FC<{ shot: Shot; frames: number }> = ({ shot, frames }) => {
   const frame = useCurrentFrame()
-  const { width, fps } = useVideoConfig()
+  const { width, height, fps } = useVideoConfig()
+  const wide = isWide(width, height)
   const cam = useCamera(shot, frames)
 
   // transition into the shot
@@ -145,12 +147,24 @@ export const ShotView: React.FC<{ shot: Shot; frames: number }> = ({ shot, frame
       <AbsoluteFill style={{ transform: cam.bg, transformOrigin: '50% 50%' }}>
         {shot.video ? (
           // real-motion clip from the video model (silent; our own voice/music/sfx are mixed separately)
-          <OffthreadVideo
-            src={staticFile(shot.video.src)} muted playbackRate={shot.video.playbackRate}
-            startFrom={Math.round(shot.video.startFromSec * fps)} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
+          wide ? (
+            // wider than the vertical clip: show the whole clip over a blurred copy of its poster, so no action is cropped away
+            <>
+              <Img src={staticFile(shot.background)} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(28px) brightness(0.8)', transform: 'scale(1.15)' }} />
+              <OffthreadVideo
+                src={staticFile(shot.video.src)} muted playbackRate={shot.video.playbackRate}
+                startFrom={Math.round(shot.video.startFromSec * fps)} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }}
+              />
+            </>
+          ) : (
+            <OffthreadVideo
+              src={staticFile(shot.video.src)} muted playbackRate={shot.video.playbackRate}
+              startFrom={Math.round(shot.video.startFromSec * fps)} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+          )
         ) : (
-          <Img src={staticFile(shot.background)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          // scenery fills the frame; in a wide frame keep the lower part (where the characters stand)
+          <Img src={staticFile(shot.background)} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: wide ? '50% 72%' : '50% 50%' }} />
         )}
       </AbsoluteFill>
       {shot.layers.filter((l) => l.kind === 'particles').map((l, i) => l.kind === 'particles' && <Particles key={`p${i}`} preset={l.preset} count={l.count} />)}
