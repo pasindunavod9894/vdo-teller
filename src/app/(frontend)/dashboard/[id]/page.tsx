@@ -91,6 +91,7 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
               id: e.id,
               title: e.title ?? '',
               status: e.status,
+              hasVideo: Boolean((e.files as { master?: string } | null)?.master),
               hook: e.idea && typeof e.idea === 'object' ? ((e.idea as { hook?: string }).hook ?? null) : null,
             }))}
           />

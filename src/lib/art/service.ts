@@ -8,7 +8,8 @@ import { MODELS } from '@/agents/models'
 import { stylePrompt } from '@/lib/styles/prompts'
 import { heuristicTheme, isTheme, type Theme } from '@/themes/palettes'
 import { pickTheme } from '@/lib/theme/pick'
-import { assetPlan, IMAGE_COST, QUALITY_FOR_TIER, specKey, type Quality } from './plan'
+import { assetPlan, FACE_BASE_NEEDS, IMAGE_COST, QUALITY_FOR_TIER, specKey, type Quality } from './plan'
+import { normalizedBusts } from '@/media/kit'
 
 const client = () => new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -102,10 +103,36 @@ async function readMediaFile(payload: Payload, mediaId: string | number) {
   return fs.readFile(path.resolve(process.cwd(), 'media', media.filename))
 }
 
+/** Local path of a stored image. */
+async function mediaPath(payload: Payload, id: string | number) {
+  const media = await payload.findByID({ collection: 'media', id, depth: 0, overrideAccess: true })
+  if (!media.filename) throw new ArtError('Image file missing', 404)
+  return path.resolve(process.cwd(), 'media', media.filename)
+}
+
+/**
+ * The steady face the mouth and blink edits start from: the closed-mouth close-up, normalised together with the expression
+ * close-ups so every close-up shares one head size and position. Deterministic: the kit assembly recomputes the same thing.
+ */
+async function faceBaseBuffer(payload: Payload, pack: { items?: { kind?: string | null; name?: string | null; image?: unknown }[] | null } | undefined) {
+  const find = (kind: string, name: string) => {
+    const item = (pack?.items ?? []).find((i) => i.kind === kind && i.name === name)
+    const img = item?.image
+    const id = typeof img === 'object' && img ? (img as { id: number }).id : (img as number | undefined)
+    if (id === undefined) throw new ArtError(`Missing ${kind} ${name}`, 409)
+    return id
+  }
+  const files = {
+    closed: await mediaPath(payload, find('mouth', 'closed')), happy: await mediaPath(payload, find('emotion', 'happy')),
+    surprised: await mediaPath(payload, find('emotion', 'surprised')), smug: await mediaPath(payload, find('emotion', 'smug')),
+  }
+  const busts = await normalizedBusts(files)
+  return busts.find((b) => b.name === 'closed')!.data
+}
+
 export async function packStatus(payload: Payload, user: User, characterId: string | number) {
   const { character, series } = await loadOwned(payload, user, characterId)
-  const voiced = series.voiceMode === 'character_voices' || series.voiceMode === 'narrator_and_characters'
-  const plan = assetPlan(voiced)
+  const plan = assetPlan()
   const pack = (await payload.find({ collection: 'asset-packs', where: { character: { equals: character.id } }, depth: 1, limit: 1, overrideAccess: true })).docs[0]
   const done = new Map((pack?.items ?? []).map((i) => [`${i.kind}:${i.name}`, typeof i.image === 'object' ? i.image.url : undefined]))
   const quality = qualityOf(series)
@@ -124,22 +151,23 @@ export async function createNextAsset(payload: Payload, user: User, characterId:
   const { character, series } = await loadOwned(payload, user, characterId)
   const refId = character.referenceImages?.[0]
   if (!refId) throw new ArtError('Create the reference sheet first', 409)
-  const voiced = series.voiceMode === 'character_voices' || series.voiceMode === 'narrator_and_characters'
-  const plan = assetPlan(voiced)
+  const plan = assetPlan()
   let pack = (await payload.find({ collection: 'asset-packs', where: { character: { equals: character.id } }, depth: 0, limit: 1, overrideAccess: true })).docs[0]
   const have = new Set((pack?.items ?? []).map((i) => `${i.kind}:${i.name}`))
-  const next = plan.find((s) => (only ? s.kind === only.kind && s.name === only.name : true) && !have.has(specKey(s)))
+  // stage-1 items (from the reference sheet) first, then the stage-2 edits of the steady face
+  const next = plan.find((s) => (only ? s.kind === only.kind && s.name === only.name : true) && !have.has(specKey(s)) && (s.source === 'reference' || FACE_BASE_NEEDS.every((k) => have.has(k))))
   if (!next) return { done: true as const }
 
   const quality = qualityOf(series)
   const cost = IMAGE_COST[quality]
   assertBudget(series, cost)
-  const ref = await readMediaFile(payload, typeof refId === 'object' ? refId.id : refId)
   const canonical = character.canonicalDescription ?? ''
+  const source = next.source === 'face-base' ? await faceBaseBuffer(payload, pack) : await readMediaFile(payload, typeof refId === 'object' ? refId.id : refId)
+  const prompt = next.source === 'face-base' ? `${next.prompt} Art style: ${stylePrompt(series.style)}.` : `${next.prompt} Character: ${canonical} Art style: ${stylePrompt(series.style)}.`
   const img = await withRetry(async () => client().images.edit({
     model: 'gpt-image-1.5',
-    image: await toFile(ref, 'reference.png', { type: 'image/png' }),
-    prompt: `${next.prompt} Character: ${canonical} Art style: ${stylePrompt(series.style)}.`,
+    image: await toFile(source, 'source.png', { type: 'image/png' }),
+    prompt,
     background: 'transparent', input_fidelity: 'high', output_format: 'png', size: '1024x1024', quality,
   }))
   const b64 = img.data?.[0]?.b64_json

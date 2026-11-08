@@ -21,7 +21,9 @@ export type Store = {
 
 export type RunOutcome = { status: 'done' | 'needs-review' | 'failed'; reason?: string; costUsd: number }
 
-export async function runEpisode(ctx: Ctx, store: Store, previousTitles: string[]): Promise<RunOutcome> {
+export async function runEpisode(baseCtx: Ctx, store: Store, previousTitles: string[]): Promise<RunOutcome> {
+  // agents may ask whether more money can be spent before each paid call
+  const ctx: Ctx = { ...baseCtx, canSpend: baseCtx.canSpend ?? ((usd) => store.budgetOk(usd)) }
   let cost = 0
   let downgradedVideo = false
   let current: StepKey = 'orchestrator-plan'
@@ -94,7 +96,9 @@ export async function runEpisode(ctx: Ctx, store: Store, previousTitles: string[
       summary: `Episode ready · "${idea.title}" · $${cost.toFixed(3)}`,
     }))
     const videoUsd = timeline.videoClips.reduce((n, c) => n + c.costUsd, 0)
-    await store.episodePatch({ status: 'done', files: { publish, mockRender: true }, costUsd: cost + videoUsd, videoCostUsd: videoUsd })
+    // the Animator already reports its video spend in its usage, so `cost` includes it
+    const master = ctx.media?.state.master
+    await store.episodePatch({ status: 'done', files: { publish, ...(master ? { master } : { mockRender: true }) }, costUsd: cost, videoCostUsd: videoUsd })
     return { status: 'done', costUsd: cost }
   } catch (e) {
     const message = e instanceof BudgetError ? 'Cost cap reached.' : e instanceof Error ? e.message : 'Unknown error'

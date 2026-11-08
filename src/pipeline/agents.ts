@@ -10,8 +10,10 @@ import {
 import { scrubDeep, cleanHashtags } from './brand-safety'
 import { plannedVideoCostUsd, planVideoShots, videoCostUsd, type VideoModelId } from '../lib/video'
 import { APPROVE_SCORE, type PipelineMode } from './steps'
+import type { MediaCtx } from './media-ctx'
+import { animatorMedia, artDirectorMedia, editorQaMedia } from './media-agents'
 
-export type Usage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; costUsd: number; videoSeconds?: number }
+export type Usage = { model: string; inputTokens: number; cachedTokens: number; outputTokens: number; reasoningTokens: number; costUsd: number; videoSeconds?: number; /** new images made (cache hits are not counted) */ images?: number }
 export type AgentResult<T> = { output: T; summary: string; usage?: Usage }
 
 export type Ctx = {
@@ -22,6 +24,10 @@ export type Ctx = {
   delayMs: number
   /** the real-video budget for THIS episode (tier allowance limited by the money left); see src/lib/video.ts */
   video: { model: VideoModelId; allowanceSec: number; provider: 'fal' | 'mock' }
+  /** real media (plates, voices, clips, render). Absent = the agents return free mock results. */
+  media?: MediaCtx
+  /** set by the Orchestrator: true while `usd` more can be spent under the series cost cap */
+  canSpend?: (usd: number) => Promise<boolean>
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -126,7 +132,7 @@ export async function critic(ctx: Ctx, script: Script, round: number): Promise<A
   return { output, summary: `Round ${round}: score ${output.score}/10${approved ? ' · approved' : ' · 2 notes'}` }
 }
 
-// ---------- Art Director (media: mock until Phase 9) ----------
+// ---------- Art Director ----------
 export async function artDirector(ctx: Ctx, script: Script): Promise<AgentResult<ShotList>> {
   await sleep(ctx.delayMs)
   const types = ['establishing', 'dialogue', 'subtle', 'action', 'reaction', 'dialogue', 'action', 'reaction'] as const
@@ -151,11 +157,13 @@ export async function artDirector(ctx: Ctx, script: Script): Promise<AgentResult
   const videoNote = videoShots.length
     ? `${videoShots.length} real-motion (${videoShots.reduce((n, s) => n + s.videoSeconds, 0)}s, ≈ $${plannedVideoCostUsd(plan, ctx.video.model).toFixed(2)})`
     : 'no real-motion shots'
+  if (ctx.media) return artDirectorMedia(ctx, ctx.media, { shots })
   return { output: { shots }, summary: `${shots.length} shots · ${dialogue} dialogue · ${videoNote}` }
 }
 
-// ---------- Animator (media: mock until Phase 8/9) ----------
+// ---------- Animator ----------
 export async function animator(ctx: Ctx, script: Script, shots: ShotList): Promise<AgentResult<Timeline>> {
+  if (ctx.media) return animatorMedia(ctx, ctx.media, script, shots)
   await sleep(ctx.delayMs)
   const cameras = ['slow push-in', 'handheld micro-shake', 'whip pan', 'depth dolly', 'zoom punch']
   const voices = script.beats.filter((b) => b.line && b.speaker).map((b) => {
@@ -181,8 +189,9 @@ export async function animator(ctx: Ctx, script: Script, shots: ShotList): Promi
   return { output: timeline, summary: `${timeline.durationSec}s timeline · ${voices.length} voiced lines · ${videoClips.length} video clips planned (${plannedSec}s)` }
 }
 
-// ---------- Editor-QA (media: mock until Phase 8/9) ----------
+// ---------- Editor-QA ----------
 export async function editorQa(ctx: Ctx, timeline: Timeline): Promise<AgentResult<QaReport>> {
+  if (ctx.media) return editorQaMedia(ctx, ctx.media, timeline)
   await sleep(ctx.delayMs)
   const report: QaReport = {
     passed: true, mock: true,

@@ -7,6 +7,7 @@ import { runEpisode, type RunOutcome, type Store } from './orchestrator'
 import { formatCountdown, nextState, type Frequency } from '@/lib/schedule'
 import { pipelineMode, STEPS, type StepKey } from './steps'
 import { videoBudgetFor } from './video-budget'
+import { buildMediaCtx } from './media-setup'
 
 export class PipelineError extends Error {
   constructor(message: string, public status = 400) { super(message) }
@@ -99,7 +100,7 @@ export async function executeEpisode(payload: Payload, episodeId: string | numbe
           status: 'done', endedAt: new Date().toISOString(), summary: r.summary,
           ...(r.usage && prev ? {
             model: r.usage.model, inputTokens: add(prev.inputTokens, r.usage.inputTokens), cachedTokens: add(prev.cachedTokens, r.usage.cachedTokens),
-            outputTokens: add(prev.outputTokens, r.usage.outputTokens), reasoningTokens: add(prev.reasoningTokens, r.usage.reasoningTokens), costUsd: add(prev.costUsd, r.usage.costUsd), videoSeconds: add(prev.videoSeconds, r.usage.videoSeconds ?? 0),
+            outputTokens: add(prev.outputTokens, r.usage.outputTokens), reasoningTokens: add(prev.reasoningTokens, r.usage.reasoningTokens), costUsd: add(prev.costUsd, r.usage.costUsd), imageCount: add(prev.imageCount, r.usage.images ?? 0), videoSeconds: add(prev.videoSeconds, r.usage.videoSeconds ?? 0),
           } : {}),
         })
       },
@@ -120,7 +121,9 @@ export async function executeEpisode(payload: Payload, episodeId: string | numbe
 
     const mode = pipelineMode()
     const profile = buildProfile(series, cast)
-    return await runEpisode({ profile, seriesId, mode, delayMs: mode === 'mock' ? delayMs : 0, video: videoBudgetFor(series, profile.durationTargetSec) }, store, past.map((e) => e.title ?? '').filter(Boolean))
+    const media = await buildMediaCtx(payload, { episodeId, seriesId, cast, tier: series.qualityTier, aspect: series.aspect })
+    // with real media the work itself takes time, so the simulated delay is only for the fixture-only run
+    return await runEpisode({ profile, seriesId, mode, delayMs: mode === 'mock' && !media ? delayMs : 0, video: videoBudgetFor(series, profile.durationTargetSec), ...(media ? { media } : {}) }, store, past.map((e) => e.title ?? '').filter(Boolean))
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Unknown error'
     console.error('[pipeline] run failed:', message)

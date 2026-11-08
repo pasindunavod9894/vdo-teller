@@ -69,7 +69,7 @@ async function art() {
 
   // 2) transparent cut-outs edited from the reference (poses, expressions, mouth shapes)
   const wanted = new Set(['pose:standing-front', 'emotion:happy', 'emotion:surprised', 'emotion:smug', 'mouth:closed', 'mouth:slightly-open', 'mouth:round-oh', 'mouth:wide-open'])
-  const specs = assetPlan(true).filter((s) => wanted.has(`${s.kind}:${s.name}`))
+  const specs = assetPlan().filter((s) => wanted.has(`${s.kind}:${s.name}`))
   const ref = fs.readFileSync(file('ref-sheet.png'))
   for (const s of specs) {
     await gen(`${s.kind}-${s.name}.png`, async () => {

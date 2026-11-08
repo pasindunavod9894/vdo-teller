@@ -5,7 +5,7 @@ import { NextEpisodeCard } from './next-episode-card'
 import { ProgressCard } from './progress-card'
 import type { Frequency } from '@/lib/schedule'
 
-export type EpisodeCard = { id: number | string; title: string; status: string; hook: string | null }
+export type EpisodeCard = { id: number | string; title: string; status: string; hook: string | null; hasVideo: boolean }
 
 export function LibraryGrid({ seriesId, frequency, lastEpisodeAt, episodes, runningEpisodeId, autoStart }: {
   seriesId: number | string; frequency: Frequency; lastEpisodeAt: string | null
@@ -48,10 +48,18 @@ export function LibraryGrid({ seriesId, frequency, lastEpisodeAt, episodes, runn
       {err && <p className="text-sm text-destructive">{err}</p>}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
         {episodes.map((e) => (
-          <div key={e.id} className="flex aspect-[9/16] max-h-80 flex-col gap-1 rounded-[var(--radius)] border border-border bg-card p-3 text-sm">
+          <div key={e.id} className="flex flex-col gap-1 rounded-[var(--radius)] border border-border bg-card p-3 text-sm">
+            {e.hasVideo ? (
+              // eslint-disable-next-line jsx-a11y/media-has-caption -- captions are burned into the picture
+              <video controls preload="metadata" playsInline className="aspect-[9/16] max-h-96 w-full rounded-md bg-black object-contain" src={`/api/episodes/${e.id}/video`} />
+            ) : (
+              <div className="flex aspect-[9/16] max-h-96 w-full items-center justify-center rounded-md bg-muted/40 px-2 text-center text-xs text-muted-foreground">
+                {e.status === 'done' ? 'Practice run (no video file)' : e.status}
+              </div>
+            )}
             <div className="font-medium">{e.title || `Episode ${e.id}`}</div>
-            <div className="text-xs text-muted-foreground">{e.status === 'done' ? 'Ready (practice run)' : e.status}</div>
-            {e.hook && <p className="mt-1 line-clamp-5 text-xs text-muted-foreground">{e.hook}</p>}
+            <div className="text-xs text-muted-foreground">{e.status === 'done' ? (e.hasVideo ? 'Ready' : 'Ready (practice run)') : e.status}</div>
+            {e.hook && !e.hasVideo && <p className="mt-1 line-clamp-5 text-xs text-muted-foreground">{e.hook}</p>}
           </div>
         ))}
         <NextEpisodeCard frequency={frequency} lastEpisodeAt={lastEpisodeAt} onGenerate={generate} busy={active} />

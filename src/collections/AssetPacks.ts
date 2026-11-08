@@ -13,7 +13,7 @@ export const AssetPacks: CollectionConfig = {
       name: 'items',
       type: 'array',
       fields: [
-        { name: 'kind', type: 'select', options: ['pose', 'emotion', 'mouth'], required: true },
+        { name: 'kind', type: 'select', options: ['pose', 'emotion', 'mouth', 'face'], required: true },
         { name: 'name', type: 'text', required: true },
         { name: 'image', type: 'upload', relationTo: 'media', required: true },
       ],

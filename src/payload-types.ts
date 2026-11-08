@@ -425,7 +425,7 @@ export interface AssetPack {
   character: number | Character;
   items?:
     | {
-        kind: 'pose' | 'emotion' | 'mouth';
+        kind: 'pose' | 'emotion' | 'mouth' | 'face';
         name: string;
         image: number | Media;
         id?: string | null;
