@@ -154,6 +154,28 @@ describe('Editor-QA with media', () => {
     expect(await videoSeconds(path.join(ws.episodeDir, m.state.master!))).toBeGreaterThan(5)
   })
 
+  it('passes a narrator-only episode: a narrator talks over the pictures, so no talking face is needed', async () => {
+    const { ctx } = await setup('narrator')
+    const s = { ...script(6), beats: script(6).beats.map((b) => ({ ...b, speaker: b.line ? 'narrator' : null })) }
+    const shots = (await agents.artDirector(ctx, s)).output
+    const tl = (await agents.animator(ctx, s, shots)).output
+    expect(tl.audio.voices.length).toBeGreaterThan(0)
+    const r = await agents.editorQa(ctx, tl)
+    expect(r.output.checks.find((c) => c.name === 'Lip-sync')).toMatchObject({ ok: true, note: 'not needed (narrator only)' })
+    expect(r.output.passed).toBe(true)
+  })
+
+  it('still fails when a character speaks and no shot shows a speaking face', async () => {
+    const { ctx, m } = await setup('character_voices')
+    const s = script(6)
+    const shots = (await agents.artDirector(ctx, s)).output
+    const tl = (await agents.animator(ctx, s, shots)).output
+    m.state.engine = { ...m.state.engine!, shots: m.state.engine!.shots.map((x) => ({ ...x, layers: x.layers.map((l) => (l.kind === 'character' ? { ...l, talk: undefined } : l)) })) }
+    const r = await agents.editorQa(ctx, tl)
+    expect(r.output.checks.find((c) => c.name === 'Lip-sync')!.ok).toBe(false)
+    expect(r.summary).toContain('Lip-sync')
+  })
+
   it('fails the check when the render is the wrong length', async () => {
     const { ctx, m } = await setup('character_voices')
     const s = script(6)

@@ -77,6 +77,18 @@ describe('orchestrator (mock mode)', () => {
     spy.mockRestore()
   })
 
+  it('a failed quality check says which check failed, not just "failed"', async () => {
+    const spy = vi.spyOn(agents, 'editorQa').mockImplementation(async () => ({
+      output: { passed: false, mock: false, checks: [{ name: 'Render', ok: true, note: '33s' }, { name: 'Loudness', ok: false, note: '-20.1 LUFS' }] }, summary: 'x',
+    }))
+    const { store, events, episode } = memoryStore()
+    const out = await runEpisode(ctx('narrator'), store, [])
+    expect(out.status).toBe('needs-review')
+    expect(episode.error).toBe('Quality checks failed: Loudness (-20.1 LUFS)')
+    expect(events).toContain('fail:editor-qa:Quality checks failed: Loudness (-20.1 LUFS)')
+    spy.mockRestore()
+  })
+
   it('no-voice mode writes on-screen text and no spoken lines; voiced modes write dialogue', async () => {
     const none = memoryStore(); await runEpisode(ctx('none'), none.store, [])
     const beatsNone = (none.episode.script as { beats: { line: string | null; onScreenText: string | null }[] }).beats

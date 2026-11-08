@@ -171,13 +171,15 @@ export async function editorQaMedia(ctx: Ctx, m: MediaCtx, timeline: PipelineTim
   const secs = await videoSeconds(out)
   const expected = engine.shots.reduce((n, s) => n + s.durationSec, 0)
   const spoken = timeline.audio.voices.length
+  // only a character's own line needs a speaking face; a narrator talks over the pictures
+  const characterLines = timeline.audio.voices.filter((v) => v.speaker !== 'narrator').length
   const checks = [
     { name: 'Render', ok: fs.existsSync(out) && fs.statSync(out).size > 1000, note: `${secs.toFixed(1)}s master` },
     { name: 'Length matches the timeline', ok: Math.abs(secs - expected) < 0.3, note: `${secs.toFixed(2)}s vs ${expected.toFixed(2)}s` },
     { name: 'Loudness', ok: Math.abs(loud.after.integrated + 14) <= 1.5 && loud.after.truePeak <= -0.9, note: `${loud.after.integrated.toFixed(1)} LUFS · peak ${loud.after.truePeak.toFixed(1)} dB` },
     { name: 'Voices', ok: engine.voices.length === spoken, note: `${engine.voices.length} of ${spoken} lines placed` },
     { name: 'Captions', ok: engine.captions.length === engine.voices.length, note: `${engine.captions.length} captions` },
-    { name: 'Lip-sync', ok: !spoken || engine.shots.some((s) => s.layers.some((l) => l.kind === 'character' && Boolean(l.talk))), note: spoken ? 'speaking faces present' : 'not needed' },
+    { name: 'Lip-sync', ok: !characterLines || engine.shots.some((s) => s.layers.some((l) => l.kind === 'character' && Boolean(l.talk))), note: characterLines ? 'speaking faces present' : 'not needed (narrator only)' },
   ]
   m.state.master = path.relative(m.ws.episodeDir, out)
   const passed = checks.every((c) => c.ok)

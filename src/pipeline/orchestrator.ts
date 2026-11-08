@@ -105,8 +105,11 @@ export async function runEpisode(baseCtx: Ctx, store: Store, previousTitles: str
 
     const qa = await step('editor-qa', undefined, () => agents.editorQa(ctx, timeline))
     if (!qa.passed) {
-      await store.stepFail('editor-qa', 'Quality checks failed.')
-      await store.episodePatch({ status: 'needs-review', error: 'Quality checks failed.' })
+      // say which checks failed so the dashboard shows the reason, not just "failed"
+      const why = qa.checks.filter((c) => !c.ok).map((c) => `${c.name} (${c.note})`).join('; ')
+      const message = why ? `Quality checks failed: ${why}` : 'Quality checks failed.'
+      await store.stepFail('editor-qa', message)
+      await store.episodePatch({ status: 'needs-review', error: message })
       return { status: 'needs-review', reason: 'qa failed', costUsd: cost }
     }
 
