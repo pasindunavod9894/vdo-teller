@@ -199,7 +199,8 @@ async function main() {
   const loud = await normalizeLoudness(path.join(root, 'proof.mp4'))
   console.log('loudness', JSON.stringify(loud))
   console.log('done', JSON.stringify(info), `${((Date.now() - t0) / 1000).toFixed(0)}s total`)
-  fs.writeFileSync(path.join(root, 'cost-log.txt'), log.join('\n') + `\nTOTAL (estimate): $${spent.toFixed(3)}\n`)
+  // Only record spend when this run actually generated something (a render-only run must not overwrite the real record).
+  if (!renderOnly) fs.writeFileSync(path.join(root, 'cost-log.txt'), log.join('\n') + `\nTOTAL (estimate): $${spent.toFixed(3)}\n`)
 }
 
 main().catch((e) => { console.error(e instanceof Error ? e.message : e); process.exit(1) })
