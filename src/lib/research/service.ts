@@ -24,6 +24,7 @@ Rules:
 - Be concise: one short sentence per text field.
 - Styles available (use these exact ids): ${STYLE_CATALOGUE.map((s) => s.id).join(', ')}.
 - A style that does not suit the niche must be marked not_suitable, with a short reason.
+- Mark EXACTLY ONE voice mode as recommended and at most 3 styles as recommended.
 - Voice modes: none (music/SFX/text only), narrator, character_voices (characters talk with lip-sync), narrator_and_characters.`
 
 export function cleanNiche(raw: string) {
