@@ -1,18 +1,14 @@
 import { STYLE_CATALOGUE } from '@/lib/styles/catalogue'
-import { tierVideoSeconds } from '@/lib/video'
 
 // Mock option generators for Phase 3. Phase 4 replaces these with the Showrunner agent's research.
 export type Status = 'recommended' | 'suitable' | 'not_suitable'
 
 export type SubNiche = { id: string; name: string; blurb: string; popularity: number; trend: 'rising' | 'stable' | 'falling'; monetization: string }
-export type StyleOption = { id: string; name: string; look: string; engineFit: number; status: Status; why: string }
-export type FormatOption = { id: 'story-reel' | 'quick-reel' | 'long-form'; name: string; length: string; blurb: string; recommended?: boolean }
+export type StyleOption = { id: string; name: string; look: string; status: Status; why: string }
 export type CharacterIdea = { id: string; name: string; role: string; look: string; personality: string }
 export type VoiceOption = { id: 'none' | 'narrator' | 'character_voices' | 'narrator_and_characters'; name: string; blurb: string; status: Status; why: string }
-export type FrequencyOption = { id: 'daily' | 'every-2-days' | '3-per-week' | 'weekly'; name: string; perMonth: number; blurb: string; recommended?: boolean }
-export type QualityOption = { id: 'budget' | 'standard' | 'premium'; name: string; blurb: string; output: string; costPerReel: number }
 
-type Kind = 'animals' | 'kids' | 'finance' | 'generic'
+export type Kind = 'animals' | 'kids' | 'finance' | 'generic'
 
 export function detectKind(niche: string): Kind {
   const n = niche.toLowerCase()
@@ -73,14 +69,6 @@ export function stylesFor(niche: string): StyleOption[] {
   }).sort((a, b) => ({ recommended: 0, suitable: 1, not_suitable: 2 })[a.status] - ({ recommended: 0, suitable: 1, not_suitable: 2 })[b.status])
 }
 
-export function formatsFor(): FormatOption[] {
-  return [
-    { id: 'story-reel', name: 'Story episode', length: '45–90 s', blurb: 'Recurring cast with an arc and a payoff', recommended: true },
-    { id: 'quick-reel', name: 'Quick reel', length: '15–30 s', blurb: 'Hook and punchline, built for sharing' },
-    { id: 'long-form', name: 'Long-form', length: '3–15 min', blurb: 'Multi-scene stories for YouTube' },
-  ]
-}
-
 export function charactersFor(niche: string): CharacterIdea[] {
   const kind = detectKind(niche)
   const sets: Record<Kind, CharacterIdea[]> = {
@@ -123,19 +111,3 @@ export function voicesFor(niche: string): VoiceOption[] {
     return { ...d, status, why: status === 'recommended' ? 'Best fit for this niche' : status === 'suitable' ? 'Works well' : 'Weak fit' }
   })
 }
-
-export const FREQUENCIES: FrequencyOption[] = [
-  { id: 'daily', name: 'Every day', perMonth: 30, blurb: 'Fastest growth, highest cost', recommended: true },
-  { id: 'every-2-days', name: 'Every 2 days', perMonth: 15, blurb: 'Good balance of growth and cost' },
-  { id: '3-per-week', name: '3 per week', perMonth: 13, blurb: 'Steady schedule' },
-  { id: 'weekly', name: 'Once a week', perMonth: 4, blurb: 'Lowest cost' },
-]
-
-// Approximate cost of a 30 s reel (plan §1b): stills + voice + captions + the real-video seconds for the tier (Kling, ~$0.07/s).
-// The real-video seconds come from the same function the pipeline uses, so what the wizard promises is what gets built.
-const realMotion = (tier: 'budget' | 'standard' | 'premium') => `${tierVideoSeconds(tier, 30)} s of real motion per 30 s reel`
-export const QUALITIES: QualityOption[] = [
-  { id: 'budget', name: 'Budget', blurb: `Our animation engine + ${realMotion('budget')} (1–2 action shots)`, output: '720p', costPerReel: 1.5 },
-  { id: 'standard', name: 'Standard', blurb: `Engine + ${realMotion('standard')} (about half the video)`, output: '1080p', costPerReel: 2.5 },
-  { id: 'premium', name: 'Premium', blurb: `Mostly real video: ${realMotion('premium')}`, output: '1080p', costPerReel: 4 },
-]

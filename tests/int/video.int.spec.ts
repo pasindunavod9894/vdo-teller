@@ -1,76 +1,70 @@
 import { describe, expect, it } from 'vitest'
-import { clipSeconds, episodeVideoAllowance, plannedVideoCostUsd, planVideoShots, tierVideoSeconds, videoCostUsd } from '@/lib/video'
+import { clipSeconds, episodeVideoAllowance, lipsyncCostUsd, plannedVideoCostUsd, planShotClips, videoCostUsd } from '@/lib/video'
+import { episodeCeilingUsd } from '@/pipeline/budget'
 
-const M = 'kling-2.5-turbo' as const
+const PRO = 'kling-2.5-turbo' as const
+const STD = 'kling-2.5-turbo-standard' as const
 
 describe('video cost', () => {
-  it('matches the verified fal.ai price: $0.35 for 5 s, $0.70 for 10 s', () => {
-    expect(videoCostUsd(M, 5)).toBe(0.35)
-    expect(videoCostUsd(M, 10)).toBe(0.7)
+  it('matches the verified fal.ai price of the pro model: $0.35 for 5 s, $0.70 for 10 s', () => {
+    expect(videoCostUsd(PRO, 5)).toBe(0.35)
+    expect(videoCostUsd(PRO, 10)).toBe(0.7)
+  })
+  it('prices the standard model from its fal.ai page: $0.21 for 5 s, $0.42 for 10 s', () => {
+    expect(videoCostUsd(STD, 5)).toBe(0.21)
+    expect(videoCostUsd(STD, 10)).toBe(0.42)
   })
   it('snaps odd lengths to a clip length the model really produces', () => {
-    expect(clipSeconds(M, 3)).toBe(5)
-    expect(clipSeconds(M, 5)).toBe(5)
-    expect(clipSeconds(M, 6.2)).toBe(10)
-    expect(clipSeconds(M, 30)).toBe(10) // longest available
-    expect(videoCostUsd(M, 3)).toBe(0.35)
+    expect(clipSeconds(PRO, 3)).toBe(5)
+    expect(clipSeconds(PRO, 5)).toBe(5)
+    expect(clipSeconds(PRO, 6.2)).toBe(10)
+    expect(clipSeconds(PRO, 30)).toBe(10) // longest available
+    expect(videoCostUsd(PRO, 3)).toBe(0.35)
+  })
+  it('prices lip-sync per second of clip', () => {
+    expect(lipsyncCostUsd('sync-lipsync-v2', 5)).toBe(0.25)
+    expect(lipsyncCostUsd('sync-lipsync-v2', 10)).toBe(0.5)
   })
 })
 
-describe('tier video allowance (hybrid)', () => {
-  it('Budget is 1-2 short clips, Standard ~45%, Premium mostly video, for a 30 s reel', () => {
-    expect(tierVideoSeconds('budget', 30)).toBe(10)
-    expect(tierVideoSeconds('standard', 30)).toBe(15)
-    expect(tierVideoSeconds('premium', 30)).toBe(25)
-  })
-  it('Budget never exceeds two clips even for long videos', () => {
-    expect(tierVideoSeconds('budget', 600)).toBe(10)
-  })
-  it('always allows at least one clip of the tier', () => {
-    expect(tierVideoSeconds('standard', 5)).toBe(5)
-  })
-  it('is limited by the money left under the cost cap', () => {
-    const base = { tier: 'premium' as const, episodeSec: 30, model: M, capUsd: 5 }
-    expect(episodeVideoAllowance({ ...base, spentUsd: 0 })).toBe(25)
-    // $5 cap, $4.30 spent, $0.15 reserve => $0.55 left => 7 s => one 5 s clip
-    expect(episodeVideoAllowance({ ...base, spentUsd: 4.3 })).toBe(5)
-    expect(episodeVideoAllowance({ ...base, spentUsd: 4.9 })).toBe(0)
-    expect(episodeVideoAllowance({ ...base, spentUsd: 99 })).toBe(0)
-  })
-})
+describe('every shot is a clip', () => {
+  const shots = [{ n: 1, durationSec: 3 }, { n: 2, durationSec: 5 }, { n: 3, durationSec: 6.5 }, { n: 4, durationSec: 2 }]
 
-describe('which shots get real video', () => {
-  const shots = [
-    { n: 1, type: 'establishing' as const, durationSec: 3 },
-    { n: 2, type: 'dialogue' as const, durationSec: 5 },
-    { n: 3, type: 'action' as const, durationSec: 2.5 },
-    { n: 4, type: 'reaction' as const, durationSec: 2 },
-    { n: 5, type: 'info' as const, durationSec: 4 },
-    { n: 6, type: 'action' as const, durationSec: 4 },
-  ]
-  const render = (plan: ReturnType<typeof planVideoShots>) => plan.filter((p) => p.render === 'video').map((p) => p.n).sort()
-
-  it('prefers action shots first, longest first', () => {
-    expect(render(planVideoShots(shots, 5, M))).toEqual([6])
-    expect(render(planVideoShots(shots, 10, M))).toEqual([3, 6])
-  })
-  it('then fills with establishing and reaction shots as the allowance grows', () => {
-    expect(render(planVideoShots(shots, 20, M))).toEqual([1, 3, 4, 6])
-  })
-  it('never sends dialogue or info shots to the video model, however large the allowance', () => {
-    const r = planVideoShots(shots, 100, M)
-    expect(r.find((p) => p.n === 2)?.render).toBe('engine')
-    expect(r.find((p) => p.n === 5)?.render).toBe('engine')
-  })
-  it('never exceeds the allowance, and does nothing with an allowance of zero', () => {
-    for (const a of [0, 5, 10, 15, 20, 25]) {
-      const plan = planVideoShots(shots, a, M)
-      expect(plan.reduce((s, p) => s + p.seconds, 0)).toBeLessThanOrEqual(a)
-    }
-    expect(render(planVideoShots(shots, 0, M))).toEqual([])
+  it('plans one clip per shot, 5 or 10 s long, with no engine shots and no tiers', () => {
+    const plan = planShotClips(shots, PRO)
+    expect(plan.map((p) => p.n)).toEqual([1, 2, 3, 4])
+    expect(plan.map((p) => p.seconds)).toEqual([5, 5, 10, 5])
   })
   it('estimates the cost of a plan', () => {
-    expect(plannedVideoCostUsd(planVideoShots(shots, 10, M), M)).toBe(0.7)
-    expect(plannedVideoCostUsd(planVideoShots(shots, 0, M), M)).toBe(0)
+    expect(plannedVideoCostUsd(planShotClips(shots, PRO), PRO)).toBe(1.75) // 5 + 5 + 10 + 5 = 25 s at USD 0.07
+    expect(plannedVideoCostUsd(planShotClips(shots, STD), STD)).toBe(1.05)
+    expect(plannedVideoCostUsd([], PRO)).toBe(0)
+  })
+})
+
+describe('video allowance', () => {
+  it('is what the money left under the cost cap can pay for (after a reserve for tokens, images and voice)', () => {
+    expect(episodeVideoAllowance({ model: PRO, capUsd: 30, spentUsd: 0 })).toBe(425) // $29.85 / $0.07 = 426 s, whole clips only
+    // $5 cap, $4.30 spent, $0.15 reserve => $0.55 left => 7 s => one 5 s clip
+    expect(episodeVideoAllowance({ model: PRO, capUsd: 5, spentUsd: 4.3 })).toBe(5)
+    expect(episodeVideoAllowance({ model: PRO, capUsd: 5, spentUsd: 4.9 })).toBe(0)
+    expect(episodeVideoAllowance({ model: PRO, capUsd: 5, spentUsd: 99 })).toBe(0)
+  })
+  it('buys more seconds with the cheaper model', () => {
+    expect(episodeVideoAllowance({ model: STD, capUsd: 5, spentUsd: 0 })).toBeGreaterThan(episodeVideoAllowance({ model: PRO, capUsd: 5, spentUsd: 0 }))
+  })
+})
+
+describe('episode ceiling', () => {
+  it('is about 5.2 dollars for a reel (25 to 30 s) with the default model, and grows with the length for any other length', () => {
+    const c = (s: number) => episodeCeilingUsd(s, PRO, {})
+    for (const s of [25, 28, 30]) { expect(c(s)).toBeGreaterThan(4.9); expect(c(s)).toBeLessThan(5.5) }
+    expect(c(10)).toBeGreaterThan(2.8); expect(c(10)).toBeLessThan(3.4) // outside the window the shots are counted at 3.5 s each
+    expect(c(15)).toBeGreaterThan(c(10)); expect(c(30)).toBeGreaterThan(c(15))
+  })
+  it('is cheaper with the standard model, and can be forced by EPISODE_COST_CAP_USD', () => {
+    expect(episodeCeilingUsd(30, STD, {})).toBeLessThan(episodeCeilingUsd(30, PRO, {}))
+    expect(episodeCeilingUsd(30, PRO, { EPISODE_COST_CAP_USD: '2.5' })).toBe(2.5)
+    expect(episodeCeilingUsd(30, PRO, { EPISODE_COST_CAP_USD: 'nope' })).toBe(episodeCeilingUsd(30, PRO, {}))
   })
 })

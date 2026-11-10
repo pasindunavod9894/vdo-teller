@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { buildPrompt, renderProfile } from '@/agents/prompt-builder'
 import type { AgentName, SeriesProfile, VoiceMode } from '@/agents/profile'
 import { hasBrand } from '@/pipeline/brand-safety'
-import { STYLE_PROMPTS } from '@/lib/styles/prompts'
+import { styleSummary } from '@/lib/styles/bible'
+import { REEL } from '@/lib/format'
 
 /**
- * The prompt eval set (plan §3b): 10 niches x 4 voice modes. Before any prompt change ships this must stay green: it checks
+ * The prompt eval set (plan §3b): 10 niches x 4 voice modes (every reel is a short story of 25 to 30 s). Before any prompt change ships this must stay green: it checks
  * that every agent's prompt is cache-friendly, short enough, brand-free and switched to the right voice mode, for every niche.
  */
 const NICHES: { niche: string; sub?: string; style: string; cast: string[] }[] = [
@@ -21,16 +22,15 @@ const NICHES: { niche: string; sub?: string; style: string; cast: string[] }[] =
   { niche: 'Dog training', sub: 'puppy tips', style: 'disney-classic', cast: ['Rex', 'Pip', 'Coco'] },
 ]
 const MODES: VoiceMode[] = ['none', 'narrator', 'character_voices', 'narrator_and_characters']
-const AGENTS: AgentName[] = ['showrunner', 'writer', 'critic', 'artDirector', 'animator', 'editorQa', 'publisher']
+const AGENTS: AgentName[] = ['creator', 'picker', 'writer', 'critic', 'styleNotes', 'artDirector', 'editor', 'reelQa', 'publisher']
 const MODE_WORD: Record<VoiceMode, string> = { none: 'NO VOICE', narrator: 'NARRATOR ONLY', character_voices: 'CHARACTER VOICES', narrator_and_characters: 'NARRATOR + CHARACTERS' }
 const WRITER_CRITIC_ART: AgentName[] = ['writer', 'critic', 'artDirector']
 
 const tokens = (s: string) => Math.ceil(s.length / 4) // rough, but stable enough to catch a prompt that balloons
 const profile = (n: (typeof NICHES)[number], mode: VoiceMode): SeriesProfile => ({
-  niche: n.niche, subNiche: n.sub, style: { id: n.style, promptTemplate: STYLE_PROMPTS[n.style] }, format: 'story-reel', durationTargetSec: 45, aspect: '9:16', voiceMode: mode,
+  niche: n.niche, subNiche: n.sub, style: { id: n.style, promptTemplate: styleSummary(null, n.style) }, durationTargetSec: REEL.targetSec, aspect: '9:16', voiceMode: mode,
   narrator: mode.includes('narrator') ? { voice: 'fable', instructions: 'warm storyteller' } : null,
   cast: n.cast.map((c) => ({ name: c, canonical: `${c}: a friendly character with a clear signature outfit and colours, always drawn the same way`, voiceProfile: mode.includes('character') ? { voice: 'coral', instructions: 'lively' } : null })),
-  qualityTier: 'standard',
 })
 
 const cases = NICHES.flatMap((n) => MODES.map((m) => [n.niche, m, profile(n, m)] as const))
@@ -59,6 +59,16 @@ describe('prompt eval set (10 niches x 4 voice modes)', () => {
       for (const { a, p: built } of prompts) expect(built.system.startsWith(prefix), `${a} shares the prefix`).toBe(true)
       // the cast appears exactly as written
       for (const c of p.cast) expect(prompts[1].p.system).toContain(c.canonical)
+      // the reel reaches every agent: its length window, its shot count and the shape of the story
+      for (const { a, p: built } of prompts) {
+        expect(built.system, `${a} reel length`).toContain(`${REEL.minSec} to ${REEL.maxSec}-second reel, ${REEL.beats[0]} to ${REEL.beats[1]} shots`)
+        expect(built.system, `${a} story shape`).toContain(REEL.structure)
+      }
+      // the vibes (every reel is a short story with one) and the expressions reach every agent through the same cached profile
+      for (const { a, p: built } of prompts) {
+        expect(built.system, `${a} vibes`).toContain('Vibes (every reel has exactly ONE')
+        expect(built.system, `${a} expressions`).toContain('Expressions the main characters can show')
+      }
       // revision is by changed lines only
       expect(prompts.find((x) => x.a === 'writer')!.p.system).toContain('revise only the lines')
     })

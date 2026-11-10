@@ -1,7 +1,7 @@
 import type { CollectionConfig } from 'payload'
 import { ownerOnly } from './access'
 
-// One pack per character: poses, emotions, mouth shapes (transparent cut-outs reused in every episode).
+// One pack per character: four expression close-ups made from its reference sheet (the old pose/mouth kinds are legacy). Locked with the character.
 export const AssetPacks: CollectionConfig = {
   slug: 'asset-packs',
   admin: { useAsTitle: 'id' },
@@ -13,7 +13,7 @@ export const AssetPacks: CollectionConfig = {
       name: 'items',
       type: 'array',
       fields: [
-        { name: 'kind', type: 'select', options: ['pose', 'emotion', 'mouth', 'face'], required: true },
+        { name: 'kind', type: 'select', options: ['expression', 'pose', 'emotion', 'mouth', 'face'], required: true },
         { name: 'name', type: 'text', required: true },
         { name: 'image', type: 'upload', relationTo: 'media', required: true },
       ],

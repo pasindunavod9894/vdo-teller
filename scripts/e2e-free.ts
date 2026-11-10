@@ -1,5 +1,5 @@
 // Free end-to-end run of the whole pipeline: every provider is forced to its mock, so nothing is spent.
-// Real Remotion render + FFmpeg mix on placeholder art, placeholder voices and placeholder video clips.
+// Real FFmpeg assembly on placeholder art, placeholder voices and placeholder video clips.
 // Run: pnpm tsx --env-file=.env scripts/e2e-free.ts [seriesId]
 import { registerHooks } from 'node:module'
 // `server-only` is a Next.js build-time guard, not an installed package: outside Next it is an empty module.
@@ -28,7 +28,7 @@ async function main() {
     const user = await payload.create({ collection: 'users', overrideAccess: true, data: { username: `e2e-${Date.now()}`, password: randomBytes(12).toString('hex') } as never })
     series = await payload.create({
       collection: 'series', overrideAccess: true,
-      data: { owner: user.id, title: 'E2E cats', niche: 'Cat videos', style: 'pixar-3d', format: 'story-reel', voiceMode: 'character_voices', frequency: 'daily', qualityTier: 'standard', aspect: '9:16', status: 'active', videoModel: 'kling-2.5-turbo', costCapUsd: 5 } as never,
+      data: { owner: user.id, title: 'E2E cats', niche: 'Cat videos', style: 'pixar-3d', format: '30', voiceMode: 'character_voices', aspect: '9:16', status: 'active', videoModel: 'kling-2.5-turbo', costCapUsd: 30 } as never,
     })
     for (const [name, voice, look] of [['Mango', 'coral', 'a confident orange tabby cat'], ['Luna', 'onyx', 'a nervous grey cat with green eyes']]) {
       await payload.create({ collection: 'characters', overrideAccess: true, data: { owner: user.id, series: series.id, name, canonicalDescription: look, voiceProfile: { voice } } as never })
@@ -36,7 +36,7 @@ async function main() {
     console.log('seeded a test series', series.id)
   }
   const owner = typeof series.owner === 'object' ? (series.owner as { id: number }).id : series.owner
-  console.log(`series ${series.id} "${series.niche}" voice=${series.voiceMode} tier=${series.qualityTier}`)
+  console.log(`series ${series.id} "${series.niche}" voice=${series.voiceMode}`)
 
   const episode = await payload.create({ collection: 'episodes', overrideAccess: true, data: { owner: owner as number, series: series.id, status: 'running', mode: 'mock', title: 'E2E free run' } })
   const t0 = Date.now()

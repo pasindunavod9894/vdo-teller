@@ -51,3 +51,6 @@ node_modules/
 
 # local render workspaces
 /render
+
+# local throwaway test login (see the file for the username and password)
+/.dev-test-account

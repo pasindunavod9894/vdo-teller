@@ -7,8 +7,11 @@ export const Characters: CollectionConfig = {
   access: { create: loggedIn, read: ownerOnly, update: ownerOnly, delete: ownerOnly },
   hooks: {
     beforeChange: [
-      ({ data, req, operation }) => {
+      async ({ data, req, operation, originalDoc }) => {
         if (operation === 'create' && req.user) data.owner = req.user.id
+        // anything a person typed is cleaned and checked before it is saved: original, at most three per series, no repeated name, content check
+        const { vetCharacterHook } = await import('../lib/art/characters')
+        await vetCharacterHook({ data, req, operation, originalDoc })
         return data
       },
     ],
@@ -32,5 +35,7 @@ export const Characters: CollectionConfig = {
       ],
     },
     { name: 'referenceImages', type: 'upload', relationTo: 'media', hasMany: true },
+    { name: 'locked', type: 'checkbox', defaultValue: false, admin: { description: 'A finished reference pack is locked: every reel uses exactly these images. "Edit character" opens it again.' } },
+    { name: 'packVersion', type: 'number', defaultValue: 0, admin: { readOnly: true, description: 'Goes up each time the reference pack is rebuilt and locked.' } },
   ],
 }

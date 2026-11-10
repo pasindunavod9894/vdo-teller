@@ -3,17 +3,32 @@ import { notFound, redirect } from 'next/navigation'
 import { getPayload } from 'payload'
 import config from '@payload-config'
 import { CastPanel } from '@/components/dashboard/cast-panel'
-import { AutoToggle } from '@/components/dashboard/auto-toggle'
 import { DashHeader } from '@/components/dashboard/header'
 import { Hero } from '@/components/dashboard/hero'
 import { CostPanel } from '@/components/dashboard/cost-panel'
-import { episodeCeilingUsd } from '@/pipeline/budget'
+import { DEFAULT_SERIES_CAP_USD, episodeCeilingUsd } from '@/pipeline/budget'
+import { REEL, REEL_TARGET_SEC } from '@/lib/format'
+import { DROPPED_IDEA_ERROR } from '@/lib/series-state'
+import { failedStepOf, retryLabel } from '@/pipeline/retry'
+import { ReviewToggle } from '@/components/dashboard/review-toggle'
+import { qaDataOf, reviewDataOf } from '@/components/dashboard/episode-props'
 import { LibraryGrid } from '@/components/dashboard/library-grid'
 import { ThemeBootstrap } from '@/components/dashboard/theme-bootstrap'
 import { STYLE_CATALOGUE } from '@/lib/styles/catalogue'
-import { IMAGE_COST, QUALITY_FOR_TIER } from '@/lib/art/plan'
+import { IMAGE_COST, KEYFRAME_QUALITY } from '@/lib/art/plan'
 import { heuristicTheme, isTheme, themeVars } from '@/themes/palettes'
-import type { Frequency } from '@/lib/schedule'
+import { getDailyState } from '@/pipeline/payload-store'
+import type { VideoClip } from '@/pipeline/schemas'
+import type { OnModel } from '@/components/dashboard/library-grid'
+
+/** One line about the episode's continuity check: are the characters on-model in every checked clip? Null when nothing was checked. */
+function onModelOf(videoClips: unknown): OnModel | null {
+  const checked = (Array.isArray(videoClips) ? (videoClips as VideoClip[]) : []).filter((c) => c?.continuity)
+  if (checked.length === 0) return null
+  const bad = checked.filter((c) => !c.continuity!.ok)
+  if (bad.length === 0) return { ok: true, issue: null, drifted: false }
+  return { ok: false, issue: bad.find((c) => c.continuity!.issues?.length)?.continuity!.issues[0] ?? null, drifted: bad.some((c) => c.status === 'drifted') }
+}
 
 const VOICE_LABEL: Record<string, string> = {
   none: 'No voice',
@@ -21,7 +36,6 @@ const VOICE_LABEL: Record<string, string> = {
   character_voices: 'Character voices',
   narrator_and_characters: 'Narrator + characters',
 }
-const FORMAT_LABEL: Record<string, string> = { 'story-reel': 'Story episode', 'quick-reel': 'Quick reel', 'long-form': 'Long-form' }
 
 export default async function Dashboard({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ start?: string }> }) {
   const { id } = await params
@@ -33,27 +47,39 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
   const series = await payload.findByID({ collection: 'series', id, user, overrideAccess: false, depth: 1 }).catch(() => null)
   if (!series || series.status === 'removed') notFound()
 
-  const [{ docs: all }, { docs: cast }, { docs: episodes, totalDocs: episodeCount }] = await Promise.all([
+  const [{ docs: all }, { docs: cast }, { docs: allEpisodes, totalDocs }, daily] = await Promise.all([
     payload.find({ collection: 'series', where: { status: { not_equals: 'removed' } }, sort: 'createdAt', user, overrideAccess: false, limit: 20, depth: 0 }),
     payload.find({ collection: 'characters', where: { series: { equals: series.id } }, user, overrideAccess: false, depth: 1 }),
     payload.find({ collection: 'episodes', where: { series: { equals: series.id } }, sort: '-createdAt', user, overrideAccess: false, limit: 12, depth: 0 }),
+    getDailyState(payload, user.id),
   ])
+
+  // a video the user dropped at the review ("Try another idea") is not listed: nothing was made and it does not count as a daily video
+  const episodes = allEpisodes.filter((e) => !(e.status === 'failed' && e.error === DROPPED_IDEA_ERROR))
+  const episodeCount = totalDocs - (allEpisodes.length - episodes.length)
+
+  // for a failed video: the step it stopped in, so the card can offer to run it again from there
+  const failedIds = episodes.filter((e) => e.status === 'failed').map((e) => e.id)
+  const { docs: failedRows } = failedIds.length
+    ? await payload.find({ collection: 'pipeline-steps', where: { and: [{ episode: { in: failedIds } }, { status: { equals: 'failed' } }] }, sort: 'order', limit: 60, depth: 0, user, overrideAccess: false })
+    : { docs: [] }
+  const failureOf = (e: (typeof episodes)[number]) => e.status === 'failed'
+    ? { reason: e.error ?? '', label: retryLabel(failedStepOf(failedRows.filter((r) => (typeof r.episode === 'object' ? r.episode.id : r.episode) === e.id))) }
+    : null
 
   // where the latest episode's money went
   const latest = episodes[0]
   const { docs: latestSteps } = latest
     ? await payload.find({ collection: 'pipeline-steps', where: { episode: { equals: latest.id } }, sort: 'order', limit: 20, depth: 0, user, overrideAccess: false })
     : { docs: [] }
-  const ceiling = episodeCeilingUsd(series.qualityTier, { 'story-reel': 45, 'quick-reel': 25, 'long-form': 180 }[series.format] ?? 45)
+  const ceiling = episodeCeilingUsd(REEL_TARGET_SEC, series.videoModel)
 
   const hasTheme = isTheme(series.theme)
   const theme = isTheme(series.theme) ? series.theme : heuristicTheme(`${series.niche} ${series.subNiche ?? ''}`, series.style)
   const styleName = STYLE_CATALOGUE.find((s) => s.id === series.style)?.name ?? series.style
   const heroUrl = typeof series.heroImage === 'object' && series.heroImage ? (series.heroImage.url ?? null) : null
-  const tierQuality = QUALITY_FOR_TIER[series.qualityTier as keyof typeof QUALITY_FOR_TIER] ?? 'medium'
-  const lastEpisodeAt = episodes[0]?.createdAt ?? null
   const spent = series.spentUsd ?? 0
-  const cap = series.costCapUsd ?? 5
+  const cap = series.costCapUsd ?? DEFAULT_SERIES_CAP_USD
 
   const stats: [string, string][] = [
     ['Episodes', String(episodeCount)],
@@ -72,8 +98,8 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
           title={series.title}
           tagline={theme.tagline}
           heroUrl={heroUrl}
-          heroCost={IMAGE_COST[tierQuality === 'low' ? 'medium' : tierQuality]}
-          chips={[series.niche, styleName, FORMAT_LABEL[series.format] ?? series.format, VOICE_LABEL[series.voiceMode] ?? series.voiceMode, series.aspect]}
+          heroCost={IMAGE_COST[KEYFRAME_QUALITY]}
+          chips={[series.niche, styleName, REEL.label, VOICE_LABEL[series.voiceMode] ?? series.voiceMode, series.aspect]}
         />
 
         <section className="grid grid-cols-2 gap-4 md:grid-cols-4" aria-label="Overview">
@@ -85,20 +111,16 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
           ))}
         </section>
 
+        <ReviewToggle seriesId={series.id} initial={Boolean(series.reviewBeforeVideo)} />
+
         <section aria-labelledby="library">
           <div className="mb-4 flex items-center justify-between">
             <h2 id="library" className="text-2xl font-semibold">Video library</h2>
-            <div className="flex flex-wrap items-center gap-2">
-              <AutoToggle seriesId={series.id} paused={series.status === 'paused'} />
-            </div>
           </div>
           <LibraryGrid
             seriesId={series.id}
             title={series.title}
-            aspect={series.aspect}
-            tier={series.qualityTier}
-            frequency={series.frequency as Frequency}
-            lastEpisodeAt={lastEpisodeAt}
+            daily={{ used: daily.used, limit: daily.limit, left: daily.left, nextAt: daily.nextAt ? daily.nextAt.toISOString() : null }}
             runningEpisodeId={episodes.find((e) => e.status === 'running')?.id ?? null}
             autoStart={start === '1'}
             episodes={episodes.map((e) => ({
@@ -108,7 +130,11 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
               hasVideo: Boolean((e.files as { master?: string } | null)?.master),
               meta: (e.files as { publish?: unknown } | null)?.publish,
               exports: Object.fromEntries(Object.entries(((e.files as { exports?: Record<string, { status: string; error?: string }> } | null)?.exports) ?? {}).map(([k, v]) => [k, { status: v.status, error: v.error }])),
+              onModel: onModelOf(e.videoClips),
+              review: e.status === 'awaiting-approval' ? reviewDataOf(e, series.videoModel) : null,
+              qa: (e.files as { master?: string } | null)?.master ? qaDataOf(e, series.videoModel) : null,
               hook: e.idea && typeof e.idea === 'object' ? ((e.idea as { hook?: string }).hook ?? null) : null,
+              failure: failureOf(e),
             }))}
           />
           {episodeCount === 0 && <p className="mt-3 text-sm text-muted-foreground">Your videos will appear here and play in this library.</p>}
@@ -125,11 +151,15 @@ export default async function Dashboard({ params, searchParams }: { params: Prom
         <section aria-labelledby="cast">
           <h2 id="cast" className="mb-4 text-2xl font-semibold">Cast</h2>
           <CastPanel
+            seriesId={series.id}
+            speaks={series.voiceMode === 'character_voices' || series.voiceMode === 'narrator_and_characters'}
             cast={cast.map((c) => ({
               id: c.id,
               name: c.name,
               role: c.role ?? '',
               canonical: c.canonicalDescription ?? '',
+              look: (c.bible as { look?: string } | null)?.look ?? '',
+              personality: (c.bible as { personality?: string } | null)?.personality ?? '',
               referenceUrl: typeof c.referenceImages?.[0] === 'object' ? (c.referenceImages[0].url ?? null) : null,
             }))}
           />

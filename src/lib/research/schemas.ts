@@ -17,11 +17,9 @@ export const SubNichesSchema = z.object({
 export const OptionsSchema = z.object({
   styles: z.array(z.object({ id: z.enum(STYLE_IDS), status, why: z.string() })).describe('one entry for EVERY style id'),
   voices: z.array(z.object({ id: z.enum(['none', 'narrator', 'character_voices', 'narrator_and_characters']), status, why: z.string() })).describe('one entry for EVERY voice mode'),
-  recommendedFormat: z.enum(['story-reel', 'quick-reel', 'long-form']),
   characters: z.array(z.object({
     id: z.string(), name: z.string(), role: z.string(), look: z.string(), personality: z.string(),
   })).describe('3 suggested casts or mascots; original characters only'),
-  recommendedFrequency: z.enum(['daily', 'every-2-days', '3-per-week', 'weekly']),
 })
 
 export type SubNichesResult = z.infer<typeof SubNichesSchema>

@@ -6,9 +6,7 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(__filename)
 
-// Remotion renders on the server with its own native binaries and bundler: Next must load it as-is, never bundle it.
 const nextConfig: NextConfig = {
-  serverExternalPackages: ['@remotion/bundler', '@remotion/renderer', '@remotion/cli', '@remotion/studio', '@remotion/studio-server', '@remotion/media-utils', '@remotion/transitions', 'remotion', 'esbuild'],
   images: {
     localPatterns: [
       {

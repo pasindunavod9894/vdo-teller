@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { BeatSchema, type Script } from './schemas'
+import { BeatSchema, SupportingCharacterSchema, type Script } from './schemas'
 
 /**
  * A revision from the Writer that carries ONLY what changed (plan §3b: output tokens cost the most). The Orchestrator merges
@@ -10,6 +10,7 @@ export const ScriptPatchSchema = z.object({
   hook: z.string().nullable().describe('new hook, or null to keep it'),
   payoff: z.string().nullable().describe('new payoff, or null to keep it'),
   beats: z.array(BeatSchema).describe('ONLY the beats you changed or added, each complete, with the same "n" as the beat it replaces; empty if no beat changes'),
+  supportingCast: z.array(SupportingCharacterSchema).nullable().describe('the COMPLETE supporting cast if it changes (for example a speaker had to be added or removed), or null to keep it'),
 })
 export type ScriptPatch = z.infer<typeof ScriptPatchSchema>
 
@@ -22,5 +23,7 @@ export function mergeScriptPatch(prev: Script, patch: ScriptPatch): Script {
     hook: patch.hook ?? prev.hook,
     payoff: patch.payoff ?? prev.payoff,
     beats: [...beats.values()].sort((a, b) => a.n - b.n),
+    supportingCast: patch.supportingCast ?? prev.supportingCast,
+    ...(prev.vibe ? { vibe: prev.vibe } : {}),
   }
 }

@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
 import { fal } from '@fal-ai/client'
 import { scrubText } from '../../pipeline/brand-safety'
+import { probe, run } from '../../engine/ffmpeg'
 import { clipSeconds, DEFAULT_VIDEO_MODEL, VIDEO_MODELS, videoCostUsd, type VideoModelId } from '../../lib/video'
 
 export type VideoErrorKind = 'auth' | 'policy' | 'invalid' | 'transient' | 'download'
@@ -19,13 +19,15 @@ export type FalLike = {
 
 export type ClipRequest = {
   model?: VideoModelId
-  /** a full-scene still WITH the character in it (not a transparent cut-out) */
+  /** the shot's approved keyframe: the full scene WITH its characters in it */
   imageFile: string
   /** describes the MOTION only: what moves and how the camera moves */
   prompt: string
   seconds: number
   destFile: string
   negativePrompt?: string
+  /** pin the END of the clip to this image too (only for models that support it); used by the continuity retry */
+  tailImageFile?: string
   client?: FalLike
   fetchImpl?: typeof fetch
   retries?: number
@@ -36,7 +38,7 @@ export type ClipResult = { file: string; seconds: number; costUsd: number; model
 const MAX_PROMPT = 500
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-function realClient(): FalLike {
+export function realClient(): FalLike {
   const key = process.env.FAL_KEY
   if (!key) throw new VideoError('FAL_KEY is not set', 'auth')
   fal.config({ credentials: key })
@@ -54,14 +56,8 @@ export function classifyFalError(e: unknown): VideoErrorKind {
   return 'transient' // no status: network-level failure
 }
 
-export function probeDuration(file: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const p = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file])
-    let out = ''
-    p.stdout.on('data', (c) => { out += c })
-    p.on('error', reject)
-    p.on('close', (code) => { const d = Number(out.trim()); code === 0 && Number.isFinite(d) ? resolve(d) : reject(new Error('ffprobe could not read the clip')) })
-  })
+export async function probeDuration(file: string): Promise<number> {
+  try { return (await probe(file)).durationSec } catch { throw new Error('ffprobe could not read the clip') }
 }
 
 /**
@@ -88,7 +84,10 @@ export async function generateClip(req: ClipRequest): Promise<ClipResult> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const imageUrl = await client.storage.upload(new Blob([image], { type: mime }))
-      const res = await client.subscribe(spec.endpoint, { input: { ...input, image_url: imageUrl } })
+      const tailUrl = req.tailImageFile && spec.endFrame && fs.existsSync(req.tailImageFile)
+        ? await client.storage.upload(new Blob([fs.readFileSync(req.tailImageFile)], { type: req.tailImageFile.toLowerCase().endsWith('.jpg') ? 'image/jpeg' : 'image/png' }))
+        : null
+      const res = await client.subscribe(spec.endpoint, { input: { ...input, image_url: imageUrl, ...(tailUrl ? { tail_image_url: tailUrl } : {}) } })
       const url = (res.data as { video?: { url?: unknown } } | undefined)?.video?.url
       if (typeof url !== 'string' || !url.startsWith('http')) throw new VideoError('fal.ai returned no video url', 'invalid')
       const r = await doFetch(url)
@@ -113,7 +112,7 @@ export async function generateClip(req: ClipRequest): Promise<ClipResult> {
 
 /**
  * Free stand-in for the video model: a slow push-in made from the still with FFmpeg. Lets the whole pipeline (timeline,
- * Remotion playback, cost tracking) run without spending anything.
+ * assembly, cost tracking) run without spending anything.
  */
 export function generateMockClip(req: Pick<ClipRequest, 'imageFile' | 'seconds' | 'destFile'> & { width?: number; height?: number; model?: VideoModelId }): Promise<ClipResult> {
   const model = req.model ?? DEFAULT_VIDEO_MODEL
@@ -122,13 +121,7 @@ export function generateMockClip(req: Pick<ClipRequest, 'imageFile' | 'seconds' 
   fs.mkdirSync(path.dirname(req.destFile), { recursive: true })
   const frames = seconds * 30
   const vf = `scale=${w * 2}:${h * 2}:force_original_aspect_ratio=increase,crop=${w * 2}:${h * 2},zoompan=z='min(zoom+0.0012,1.2)':d=${frames}:s=${w}x${h}:fps=30,format=yuv420p`
-  return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', ['-y', '-v', 'error', '-loop', '1', '-i', req.imageFile, '-vf', vf, '-t', String(seconds), '-c:v', 'libx264', req.destFile])
-    let err = ''
-    p.stderr.on('data', (c) => { err += c })
-    p.on('error', reject)
-    p.on('close', (code) => (code === 0
-      ? resolve({ file: req.destFile, seconds, costUsd: 0, model, remoteUrl: 'mock://ffmpeg', mock: true })
-      : reject(new VideoError(`Mock clip failed: ${err.slice(-200)}`, 'invalid'))))
-  })
+  return run(['-y', '-v', 'error', '-loop', '1', '-i', req.imageFile, '-vf', vf, '-t', String(seconds), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', req.destFile])
+    .then(() => ({ file: req.destFile, seconds, costUsd: 0, model, remoteUrl: 'mock://ffmpeg', mock: true }) as ClipResult)
+    .catch((e: Error) => { throw new VideoError(`Mock clip failed: ${e.message.slice(-200)}`, 'invalid') })
 }

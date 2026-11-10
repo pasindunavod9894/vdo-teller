@@ -21,5 +21,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (series.status === 'removed' && body.action !== 'restore') return NextResponse.json({ error: 'Series not found' }, { status: 404 })
 
   const updated = await payload.update({ collection: 'series', id, data: seriesPatch(body.action), overrideAccess: true })
-  return NextResponse.json({ id: updated.id, folderLinked: Boolean(updated.folderLinked), status: updated.status })
+  return NextResponse.json({ id: updated.id, folderLinked: Boolean(updated.folderLinked), status: updated.status, reviewBeforeVideo: Boolean(updated.reviewBeforeVideo) })
 }

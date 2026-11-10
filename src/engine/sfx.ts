@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { run } from './ffmpeg'
 
 /**
  * Sound effects made in code with FFmpeg (no downloads, no licences). They are simple on purpose: they give cuts, steam and
@@ -23,16 +23,6 @@ const RECIPES: Record<SfxName, Recipe> = {
 
 export const SFX_NAMES = Object.keys(RECIPES) as SfxName[]
 export const sfxDuration = (name: SfxName) => RECIPES[name].duration
-
-function run(args: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', args)
-    let err = ''
-    p.stderr.on('data', (c) => { err += c })
-    p.on('error', reject)
-    p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg failed: ${err.slice(-200)}`))))
-  })
-}
 
 /** Writes `<dir>/sfx-<name>.wav` (48 kHz mono) unless it already exists, and returns the file name. */
 export async function ensureSfx(name: SfxName, dir: string): Promise<string> {

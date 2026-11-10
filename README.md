@@ -1,38 +1,15 @@
-# Payload Blank Template
+# VDO Teller
 
-This template comes configured with the bare minimum to get started on anything you need.
+Type a video topic and get a faceless, AI-made short-video series (short-story reels of 25 to 30 seconds) that is ready for Facebook and YouTube. Built with Next.js, Payload CMS, Postgres, OpenAI, fal.ai and FFmpeg.
 
-## Quick start
+## Local setup
 
-This template can be deployed directly from our Cloud hosting and it will setup MongoDB and cloud S3 object storage for media.
+1. `cp .env.example .env`, then fill in the keys you have (`OPENAI_API_KEY`, `FAL_KEY`) and choose a database password (it must be the same in `DATABASE_URL` and `POSTGRES_PASSWORD`). Without keys the app runs on free sample data and mock media.
+2. `docker compose up -d` starts a local Postgres on port 5434 (see `docker-compose.yml`; the data lives in the `vdo-teller-pgdata` volume, so `docker compose down` keeps it).
+3. `pnpm install && pnpm dev`, then open `http://localhost:3000`.
+4. FFmpeg (with libass) must be installed on your machine; it does all the video assembling.
 
-## Quick Start - local setup
-
-To spin up this template locally, follow these steps:
-
-### Clone
-
-After you click the `Deploy` button above, you'll want to have standalone copy of this repo on your machine. If you've already cloned this repo, skip to [Development](#development).
-
-### Development
-
-1. First [clone the repo](#clone) if you have not done so already
-2. `cd my-project && cp .env.example .env` to copy the example environment variables. You'll need to add the `MONGODB_URL` from your Cloud project to your `.env` if you want to use S3 storage and the MongoDB database that was created for you.
-
-3. `pnpm install && pnpm dev` to install dependencies and start the dev server
-4. open `http://localhost:3000` to open the app in your browser
-
-That's it! Changes made in `./src` will be reflected in your app. Follow the on-screen instructions to login and create your first admin user. Then check out [Production](#production) once you're ready to build and serve your app, and [Deployment](#deployment) when you're ready to go live.
-
-#### Docker (Optional)
-
-If you prefer to use Docker for local development instead of a local MongoDB instance, the provided docker-compose.yml file can be used.
-
-To do so, follow these steps:
-
-- Modify the `MONGODB_URL` in your `.env` file to `mongodb://127.0.0.1/<dbname>`
-- Modify the `docker-compose.yml` file's `MONGODB_URL` to match the above `<dbname>`
-- Run `docker-compose up` to start the database, optionally pass `-d` to run in the background.
+Useful scripts (the paid ones are a dry run unless you add `--yes`): `scripts/style-reel.ts` (a free mock reel in any style), `scripts/live-kling-test.ts`, `scripts/lipsync-proof.ts` and `scripts/story-eval.ts` (paid checks), and `scripts/migrate-formats.ts` (converts old series to the three reel lengths).
 
 ## How it works
 
@@ -51,16 +28,6 @@ See the [Collections](https://payloadcms.com/docs/configuration/collections) doc
 - #### Media
 
   This is the uploads enabled collection. It features pre-configured sizes, focal point and manual resizing to help you manage your pictures.
-
-### Docker
-
-Alternatively, you can use [Docker](https://www.docker.com) to spin up this template locally. To do so, follow these steps:
-
-1. Follow [steps 1 and 2 from above](#development), the docker-compose file will automatically use the `.env` file in your project root
-1. Next run `docker-compose up`
-1. Follow [steps 4 and 5 from above](#development) to login and create your first admin user
-
-That's it! The Docker instance will help you get up and running quickly while also standardizing the development environment across your teams.
 
 ## Questions
 

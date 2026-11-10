@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process'
 import path from 'node:path'
+import { run } from './ffmpeg'
 import type { Timeline } from './timeline'
 import { durationSec } from './timeline'
 
@@ -63,13 +63,8 @@ export function buildMixPlan(t: Pick<Timeline, 'voices' | 'sfx' | 'music' | 'sho
   return { args, inputs: i, hasMusic }
 }
 
-export function mixTimelineAudio(t: Pick<Timeline, 'voices' | 'sfx' | 'music' | 'shots'>, assetsDir: string, outFile: string): Promise<MixPlan> {
+export async function mixTimelineAudio(t: Pick<Timeline, 'voices' | 'sfx' | 'music' | 'shots'>, assetsDir: string, outFile: string): Promise<MixPlan> {
   const plan = buildMixPlan(t, assetsDir, outFile)
-  return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', plan.args)
-    let err = ''
-    p.stderr.on('data', (c) => { err += c })
-    p.on('error', reject)
-    p.on('close', (code) => (code === 0 ? resolve(plan) : reject(new Error(`audio mix failed: ${err.slice(-300)}`))))
-  })
+  try { await run(plan.args) } catch (e) { throw new Error(`audio mix failed: ${(e as Error).message}`) }
+  return plan
 }

@@ -16,7 +16,7 @@ export default function StartPage() {
   const go = (n: string) => {
     const v = n.trim()
     if (!v) return
-    set({ niche: v, subNiche: '', style: '', voiceMode: '' })
+    set({ niche: v, subNiche: '', subNicheName: '', style: '', styleApplicability: null, styleBible: null, castOption: null, cast: [], voices: {}, voiceMode: '', voiceApplicability: null })
     router.push('/start/sub-niche')
   }
 

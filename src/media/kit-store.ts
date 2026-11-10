@@ -1,13 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Payload } from 'payload'
-import { assetPlan, specKey } from '../lib/art/plan'
-import { buildKit, copyKit, type CharacterKit, type KitSources } from './kit'
+import { assetPlan, EXPRESSIONS, specKey } from '../lib/art/plan'
+import { copyKit, type CharacterKit } from './kit'
 import { hashOf, safeName } from './workspace'
 
 /**
- * Loads a character's kit for an episode: assembled once from its stored images, cached in the series library, then copied
- * into the episode's assets folder. Returns null while the character's images are not all made yet.
+ * Loads a character's kit for an episode: the reference sheet and expression close-ups are copied from the media folder
+ * into the series library once (cached by which images they are), then into the episode's assets folder. Returns null while
+ * the character's images are not all made yet.
  */
 export async function loadKit(
   payload: Pick<Payload, 'findByID' | 'find'>,
@@ -16,27 +17,35 @@ export async function loadKit(
 ): Promise<CharacterKit | null> {
   const mediaDir = dirs.mediaDir ?? path.resolve(process.cwd(), 'media')
   const character = await payload.findByID({ collection: 'characters', id: characterId, depth: 0, overrideAccess: true })
+  const sheetRef = character.referenceImages?.[0]
+  const sheetId = typeof sheetRef === 'object' && sheetRef ? (sheetRef as { id: number }).id : (sheetRef as number | undefined)
+  if (sheetId === undefined) return null
   const pack = (await payload.find({ collection: 'asset-packs', where: { character: { equals: character.id } }, depth: 0, limit: 1, overrideAccess: true })).docs[0]
   const items = new Map((pack?.items ?? []).map((i) => [`${i.kind}:${i.name}`, typeof i.image === 'object' && i.image ? (i.image as { id: number }).id : (i.image as number)]))
-  if (!assetPlan().every((s) => items.has(specKey(s)))) return null
+  // the base four are what every pack has; a series with extra expressions has those too, and they are used when they are there
+  if (!assetPlan(EXPRESSIONS).every((s) => items.has(specKey(s)))) return null
+  const faces = [...items.keys()].filter((k) => k.startsWith('expression:')).map((k) => k.slice('expression:'.length)).sort((a, b) => (EXPRESSIONS as readonly string[]).indexOf(b) - (EXPRESSIONS as readonly string[]).indexOf(a))
 
-  const kitDir = path.join(dirs.libraryDir, `kit-${safeName(character.name)}-${hashOf(...assetPlan().map((s) => `${specKey(s)}=${items.get(specKey(s))}`))}`)
+  const n = safeName(character.name)
+  const kitDir = path.join(dirs.libraryDir, `kit-${n}-${hashOf(String(sheetId), ...[...items.keys()].sort().map((k) => `${k}=${items.get(k)}`))}`)
   const manifest = path.join(kitDir, 'kit.json')
   if (fs.existsSync(manifest)) return copyKit(JSON.parse(fs.readFileSync(manifest, 'utf8')) as CharacterKit, kitDir, dirs.assetsDir)
 
-  const file = async (kind: string, name: string) => {
-    const media = await payload.findByID({ collection: 'media', id: items.get(`${kind}:${name}`)!, depth: 0, overrideAccess: true })
-    if (!media.filename) throw new Error(`Image file missing for ${kind} ${name}`)
+  const fileOf = async (id: number) => {
+    const media = await payload.findByID({ collection: 'media', id, depth: 0, overrideAccess: true })
+    if (!media.filename) throw new Error(`Image file missing for ${character.name}`)
     return path.join(mediaDir, media.filename)
   }
-  const sources: KitSources = {
-    stand: await file('pose', 'standing-front'), walkA: await file('pose', 'walking-side-a'), walkB: await file('pose', 'walking-side-b'),
-    crouch: await file('pose', 'crouch'), air: await file('pose', 'airborne'),
-    closed: await file('mouth', 'closed'), happy: await file('emotion', 'happy'), surprised: await file('emotion', 'surprised'), smug: await file('emotion', 'smug'),
-    slightlyOpen: await file('mouth', 'slightly-open'), roundOh: await file('mouth', 'round-oh'), wideOpen: await file('mouth', 'wide-open'),
-    blink: await file('face', 'blink'),
+  fs.mkdirSync(kitDir, { recursive: true })
+  const sheet = `${n}-sheet.png`
+  fs.copyFileSync(await fileOf(sheetId), path.join(kitDir, sheet))
+  const expressions: Record<string, string> = {}
+  for (const name of [...EXPRESSIONS, ...faces.filter((f) => !(EXPRESSIONS as readonly string[]).includes(f))]) {
+    const f = `${n}-expr-${name}.png`
+    fs.copyFileSync(await fileOf(items.get(`expression:${name}`)!), path.join(kitDir, f))
+    expressions[name] = f
   }
-  const kit = await buildKit(sources, kitDir, character.name)
+  const kit: CharacterKit = { name: character.name, sheet, expressions }
   fs.writeFileSync(manifest, JSON.stringify(kit))
   return copyKit(kit, kitDir, dirs.assetsDir)
 }

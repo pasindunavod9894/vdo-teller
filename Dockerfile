@@ -45,6 +45,10 @@ ENV NODE_ENV production
 # Uncomment the following line in case you want to disable telemetry during runtime.
 # ENV NEXT_TELEMETRY_DISABLED 1
 
+# FFmpeg (with libass and libx264) does all the video assembling; fontconfig and a base font let it draw the captions.
+# Put extra caption fonts in ./fonts and set FONTS_DIR, or the system font is used.
+RUN apk add --no-cache ffmpeg fontconfig ttf-dejavu
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 

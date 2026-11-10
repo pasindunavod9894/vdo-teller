@@ -17,8 +17,7 @@ type Files = { master?: string; publish?: unknown; exports?: ExportMap; [k: stri
 async function load(payload: Payload, user: User, episodeId: string | number) {
   const episode = await payload.findByID({ collection: 'episodes', id: episodeId, depth: 0, overrideAccess: true }).catch(() => null)
   if (!episode || idOf(episode.owner) !== user.id) throw new PipelineError('Episode not found', 404)
-  const series = await payload.findByID({ collection: 'series', id: idOf(episode.series), depth: 0, overrideAccess: true })
-  return { episode, series, files: (episode.files ?? {}) as Files }
+  return { episode, files: (episode.files ?? {}) as Files }
 }
 
 const save = (payload: Payload, episodeId: string | number, files: Files) =>
@@ -43,11 +42,8 @@ export async function startExport(payload: Payload, user: User, episodeId: strin
 export async function executeExport(payload: Payload, user: User, episodeId: string | number, aspect: Aspect) {
   let entry: ExportEntry
   try {
-    const { episode, series, files } = await load(payload, user, episodeId)
-    const file = await renderExport({
-      episodeDir: openWorkspace(episode.id, idOf(episode.series)).episodeDir, aspect,
-      masterAspect: series.aspect as Aspect, tier: series.qualityTier, master: files.master as string,
-    })
+    const { episode, files } = await load(payload, user, episodeId)
+    const file = await renderExport({ episodeDir: openWorkspace(episode.id, idOf(episode.series)).episodeDir, aspect, master: files.master as string })
     entry = { status: 'ready', file, at: new Date().toISOString() }
   } catch (e) {
     console.error('[export] failed:', e instanceof Error ? e.message : e)

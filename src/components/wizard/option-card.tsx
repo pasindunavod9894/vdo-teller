@@ -4,23 +4,31 @@ import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export function OptionCard({
-  selected, onClick, title, subtitle, badge, badgeTone = 'accent', children, dim,
+  selected, onClick, title, subtitle, badge, badgeTone = 'accent', children, dim, media, radio, tabIndex, onKeyDown,
 }: {
   selected?: boolean; onClick: () => void; title: string; subtitle?: string
   badge?: string; badgeTone?: 'accent' | 'muted'; children?: React.ReactNode; dim?: boolean
+  /** a picture shown at the top of the card, edge to edge */
+  media?: React.ReactNode
+  /** the card is one choice of a radio group (the parent provides role="radiogroup" and the arrow keys) */
+  radio?: boolean; tabIndex?: number; onKeyDown?: React.KeyboardEventHandler<HTMLButtonElement>
 }) {
   return (
     <motion.button
       type="button"
       onClick={onClick}
+      onKeyDown={onKeyDown}
+      tabIndex={tabIndex}
+      {...(radio ? { role: 'radio', 'aria-checked': Boolean(selected) } : { 'aria-pressed': selected === undefined ? undefined : selected })}
       whileHover={{ y: -3 }}
       whileTap={{ scale: 0.98 }}
       className={cn(
-        'relative w-full rounded-xl border bg-card p-5 text-left transition-colors',
+        'relative w-full overflow-hidden rounded-xl border bg-card p-5 text-left transition-colors',
         selected ? 'border-accent ring-2 ring-accent/40' : 'border-border hover:border-muted-foreground/40',
         dim && 'opacity-60',
       )}
     >
+      {media && <div className="-mx-5 -mt-5 mb-4">{media}</div>}
       {selected && (
         <motion.span
           initial={{ scale: 0 }} animate={{ scale: 1 }}

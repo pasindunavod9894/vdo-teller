@@ -1,154 +1,165 @@
 import { describe, expect, it } from 'vitest'
-import { blinkTimes, buildTimeline, emotionBust, type BuildInput, type SpeechInfo } from '@/pipeline/timeline-builder'
-import type { CharacterKit } from '@/media/kit'
-import { TimelineSchema } from '@/engine/timeline'
+import { buildTimeline, captionChunks, pickTransition, speechInfoFrom, voiceNeedSec, type BuildInput } from '@/pipeline/timeline-builder'
+import { shotStarts, TimelineSchema } from '@/engine/timeline'
+import type { Script, ShotList } from '@/pipeline/schemas'
 
-const kit = (n: string): CharacterKit => ({
-  name: n, stand: `${n}-stand.png`, walk: [`${n}-wa.png`, `${n}-wb.png`], crouch: `${n}-crouch.png`, air: `${n}-air.png`,
-  face: [`${n}-f0.png`, `${n}-f1.png`, `${n}-f2.png`, `${n}-f3.png`], blink: `${n}-blink.png`,
-  emotions: { happy: `${n}-happy.png`, surprised: `${n}-surprised.png`, smug: `${n}-smug.png` },
+const beat = (n: number, over: Partial<Script['beats'][number]> = {}): Script['beats'][number] => ({ n, action: `beat ${n}`, speaker: null, line: null, emotion: null, delivery: null, expression: 'neutral' as const, onScreenText: null, ...over })
+const shot = (n: number, type: ShotList['shots'][number]['type'], over: Partial<ShotList['shots'][number]> = {}): ShotList['shots'][number] => ({
+  n, type, description: `shot ${n}`, durationSec: 3, characters: ['Mango'], beat: n, videoSeconds: 5, keyframePrompt: 'k', motionPrompt: 'm', ...over,
 })
-const speech = (seconds: number): SpeechInfo => ({
-  file: `line-${seconds}.wav`, seconds,
-  words: [{ text: 'hello', startSec: 0, endSec: seconds / 2 }, { text: 'there', startSec: seconds / 2, endSec: seconds }],
-  mouthKeys: [{ atSec: 0.1, shape: 2 }, { atSec: 0.4, shape: 0 }],
-  energy: Array.from({ length: Math.ceil(seconds * 30) }, (_, i) => (i % 6) / 6),
-})
-const beat = (n: number, speaker: string | null, line: string | null, extra: Record<string, unknown> = {}) =>
-  ({ n, action: 'they talk', speaker, line, emotion: null, delivery: null, onScreenText: null, ...extra })
-const shot = (n: number, type: string, over: Record<string, unknown> = {}) =>
-  ({ n, type, description: 'a kitchen scene', durationSec: 3, characters: ['Mango'], beat: n, render: 'engine', videoSeconds: 0, motionPrompt: null, ...over })
+const words = (text: string, sec: number) => text.split(' ').map((t, i, a) => ({ text: t, startSec: (i * sec) / a.length, endSec: ((i + 0.9) * sec) / a.length }))
 
-function base(over: Partial<BuildInput> = {}): BuildInput {
+function input(over: Partial<BuildInput> = {}): BuildInput {
+  const script: Script = { title: 't', hook: 'h', payoff: 'p', supportingCast: [], beats: [beat(1), beat(2, { speaker: 'Mango', line: 'Trust me this will work', emotion: 'smug' }), beat(3, { onScreenText: 'Oops' }), beat(4, { speaker: 'Luna', line: 'It did not' })] }
   return {
-    script: { title: 't', hook: 'h', payoff: 'p', beats: [beat(1, 'Mango', 'hello there'), beat(2, 'Biscuit', 'hello there', { emotion: 'scared' }), beat(3, null, null)] },
-    shots: [shot(1, 'dialogue'), shot(2, 'dialogue', { characters: ['Biscuit'] }), shot(3, 'action', { description: 'Mango jumps up', characters: ['Mango'] })] as BuildInput['shots'],
-    kits: { Mango: kit('Mango'), Biscuit: kit('Biscuit') },
-    speech: { 1: speech(2), 2: speech(2.5) },
-    plates: { 1: 'plate-a.png', 2: 'plate-b.png' }, fallbackPlate: 'plate-fallback.png',
-    clips: {}, stills: {},
-    sfx: { whoosh: 'whoosh.wav', hiss: 'hiss.wav', thud: 'thud.wav' },
+    script, shots: [shot(1, 'establishing'), shot(2, 'dialogue'), shot(3, 'action'), shot(4, 'dialogue')],
+    speech: { 2: speechInfoFrom('line2.wav', 2.1, words('Trust me this will work', 2.1)), 4: speechInfoFrom('line4.wav', 1.2, words('It did not', 1.2)) },
+    clips: { 1: { file: 'clip-1.mp4', seconds: 5 }, 2: { file: 'clip-2.mp4', seconds: 5 }, 3: { file: 'clip-3.mp4', seconds: 5 }, 4: { file: 'clip-4.mp4', seconds: 5 } },
+    sfx: { whoosh: 'sfx-whoosh.wav' }, music: { src: 'music.wav', volume: 0.2 }, transitions: ['fade', 'slideleft'],
     ...over,
   }
 }
 
-describe('timeline builder', () => {
-  it('produces a timeline the engine schema accepts', () => {
-    const r = buildTimeline(base())
+describe('timing', () => {
+  it('starts every shot where the earlier shots end, and makes a timeline the assembler accepts', () => {
+    const r = buildTimeline(input())
     expect(() => TimelineSchema.parse(r.timeline)).not.toThrow()
-    expect(r.timeline.shots).toHaveLength(3)
+    const cumulative = r.timeline.shots.map((_, i) => r.timeline.shots.slice(0, i).reduce((n, x) => n + x.durationSec, 0))
+    r.shotStarts.forEach((x, i) => expect(x).toBeCloseTo(cumulative[i], 1))
+    expect(shotStarts(r.timeline).map((x) => Math.round(x * 10) / 10)).toEqual(cumulative.map((x) => Math.round(x * 10) / 10))
+    expect(r.durationSec).toBeCloseTo(r.timeline.shots.reduce((n, s) => n + s.durationSec, 0), 1)
+    expect(r.timeline.shots.map((s) => s.clip)).toEqual(['clip-1.mp4', 'clip-2.mp4', 'clip-3.mp4', 'clip-4.mp4'])
+    expect(r.timeline.music).toEqual({ src: 'music.wav', volume: 0.2 })
   })
 
-  it('never lets two voices overlap and puts each voice inside its shot', () => {
-    const r = buildTimeline(base())
-    const v = r.timeline.voices!
-    expect(v).toHaveLength(2)
-    expect(v[1].startSec).toBeGreaterThanOrEqual(v[0].startSec + 2)
-    r.timeline.shots.forEach((s, i) => expect(s.durationSec).toBeGreaterThan(0.5))
-    // the first voice begins after its shot starts, the second after the first has finished
-    expect(v[0].startSec).toBeGreaterThan(r.shotStarts[0])
-    expect(v[1].startSec).toBeGreaterThanOrEqual(r.shotStarts[1])
+  it('places a voice a little after its shot starts and gives the shot room for the whole line', () => {
+    const r = buildTimeline(input())
+    const [, s2] = r.timeline.shots
+    const start2 = r.shotStarts[1]
+    const v = r.timeline.voices[0]
+    expect(v.src).toBe('line2.wav')
+    expect(v.startSec).toBeGreaterThanOrEqual(start2 + 0.29)
+    expect(v.startSec + 2.1).toBeLessThanOrEqual(start2 + s2.durationSec + 0.01) // the line ends inside its shot
+    expect(s2.durationSec).toBeGreaterThanOrEqual(voiceNeedSec(2.1) - 0.01)
   })
 
-  it('stretches a talking shot to hold the speaker until the line ends', () => {
-    const r = buildTimeline(base({ shots: [shot(1, 'dialogue', { durationSec: 1.5 })] as BuildInput['shots'], script: { title: 't', hook: 'h', payoff: 'p', beats: [beat(1, 'Mango', 'hello there')] }, speech: { 1: speech(3) } }))
-    expect(r.timeline.shots[0].durationSec).toBeGreaterThanOrEqual(0.3 + 3)
+  it('never lets two lines overlap, even when the earlier line is long', () => {
+    const r = buildTimeline(input({ speech: { 2: speechInfoFrom('a.wav', 6, words('a b c d e f g h', 6)), 4: speechInfoFrom('b.wav', 1.2, words('It did not', 1.2)) }, clips: { 1: { file: 'c1', seconds: 5 }, 2: { file: 'c2', seconds: 10 }, 3: { file: 'c3', seconds: 5 }, 4: { file: 'c4', seconds: 5 } } }))
+    const [a, b] = r.timeline.voices
+    expect(b.startSec).toBeGreaterThanOrEqual(a.startSec + 6)
   })
 
-  it('gives a speaking character the steady face with talk, blinks and mouth frames', () => {
-    const c = buildTimeline(base()).timeline.shots[0].layers.find((l) => l.kind === 'character') as Record<string, any>
-    expect(c.talk).toBeTruthy()
-    expect(c.blinks.src).toBe('Mango-blink.png')
-    expect(c.frames.length).toBeGreaterThan(1)
-    expect(c.frames.every((f: { src: string }) => f.src.startsWith('Mango-f'))).toBe(true)
-  })
-
-  it('uses the speaker\'s own face even when the shot is framed on someone else', () => {
-    const r = buildTimeline(base({ shots: [shot(1, 'dialogue', { characters: ['Mango'] })] as BuildInput['shots'], script: { title: 't', hook: 'h', payoff: 'p', beats: [beat(1, 'Biscuit', 'hello there')] }, speech: { 1: speech(2) } }))
-    const c = r.timeline.shots[0].layers.find((l) => l.kind === 'character') as Record<string, any>
-    expect(c.frames[0].src.startsWith('Biscuit-f')).toBe(true)
-  })
-
-  it('adds captions with word timings for each spoken line', () => {
-    const r = buildTimeline(base())
-    expect(r.timeline.captions).toHaveLength(2)
-    expect(r.timeline.captions[0].words!.map((w) => w.text)).toEqual(['hello', 'there'])
-    expect(r.timeline.captions[0].words![0].startSec).toBeGreaterThanOrEqual(r.timeline.voices![0].startSec)
-  })
-
-  it('narrator lines get a voice and captions but no talking face', () => {
-    const r = buildTimeline(base({
-      script: { title: 't', hook: 'h', payoff: 'p', beats: [beat(1, 'narrator', 'hello there')] },
-      shots: [shot(1, 'establishing')] as BuildInput['shots'], speech: { 1: speech(2) },
-    }))
+  it('puts a beat\'s line only in the first shot of that beat', () => {
+    const shots = [shot(1, 'dialogue', { beat: 2 }), shot(2, 'reaction', { beat: 2 }), shot(3, 'action', { beat: 3 })]
+    const r = buildTimeline(input({ shots, clips: { 1: { file: 'c1', seconds: 5 }, 2: { file: 'c2', seconds: 5 }, 3: { file: 'c3', seconds: 5 } }, speech: { 2: speechInfoFrom('line2.wav', 2, words('Trust me this will work', 2)) } }))
     expect(r.timeline.voices).toHaveLength(1)
-    const c = r.timeline.shots[0].layers.find((l) => l.kind === 'character') as Record<string, any> | undefined
-    expect(c?.talk).toBeUndefined()
   })
 
-  it('a no-voice episode has no voices or captions but still shows on-screen text', () => {
-    const r = buildTimeline(base({
-      script: { title: 't', hook: 'h', payoff: 'p', beats: [beat(1, null, null, { onScreenText: 'Uh oh' })] },
-      shots: [shot(1, 'reaction')] as BuildInput['shots'], speech: {},
-    }))
-    expect(r.timeline.voices).toHaveLength(0)
-    expect(r.timeline.captions).toHaveLength(0)
-    expect(r.timeline.shots[0].layers.some((l) => l.kind === 'text')).toBe(true)
+  it('says when a shot is longer than its clip (the last frame is held) and fails when a clip is missing', () => {
+    const r = buildTimeline(input({ shots: [shot(1, 'subtle', { durationSec: 7 })], clips: { 1: { file: 'c1', seconds: 5 } } }))
+    expect(r.notes.join(' ')).toMatch(/last frame is held/)
+    expect(() => buildTimeline(input({ clips: {} }))).toThrow(/no video clip/)
+  })
+})
+
+describe('captions and on-screen text', () => {
+  it('turns a spoken line into captions with the real word timings, shifted to where the line starts', () => {
+    const r = buildTimeline(input())
+    const cap = r.timeline.captions[0]
+    expect(cap.text).toBe('Trust me this will work')
+    expect(cap.startSec).toBeCloseTo(r.timeline.voices[0].startSec, 2)
+    expect(cap.words?.length).toBe(5)
+    expect(cap.words![0].startSec).toBeGreaterThanOrEqual(r.timeline.voices[0].startSec)
   })
 
-  it('plays a generated clip at its own length and uses the still as the poster', () => {
-    const r = buildTimeline(base({
-      shots: [shot(1, 'action', { render: 'video', videoSeconds: 5, description: 'Mango walks in' })] as BuildInput['shots'],
-      script: { title: 't', hook: 'h', payoff: 'p', beats: [beat(1, null, null)] }, speech: {},
-      clips: { 1: { file: 'clip-1.mp4', seconds: 5 } }, stills: { 1: 'scene-1.png' },
-    }))
-    const s = r.timeline.shots[0]
-    expect(s.durationSec).toBe(5)
-    expect(s.video?.src).toBe('clip-1.mp4')
-    expect(s.background).toBe('scene-1.png')
-    expect(s.layers.filter((l) => l.kind === 'character')).toHaveLength(0)
+  it('splits a long line into captions of at most six words, each with its own window', () => {
+    const text = 'one two three four five six seven eight nine ten'
+    const c = captionChunks(text, words(text, 5), 10, 15)
+    expect(c.map((x) => x.text.split(' ').length)).toEqual([6, 4])
+    expect(c[0].endSec).toBeCloseTo(c[1].startSec, 5)
+    expect(c[1].endSec).toBe(15)
+    expect(captionChunks('a b c', [], 0, 3).map((x) => x.text)).toEqual(['a b c']) // no timings: spread evenly
   })
 
-  it('falls back to an engine shot (and says so) when a video clip is missing', () => {
-    const r = buildTimeline(base({ shots: [shot(1, 'action', { render: 'video', videoSeconds: 5 })] as BuildInput['shots'], script: { title: 't', hook: 'h', payoff: 'p', beats: [beat(1, null, null)] }, speech: {} }))
-    expect(r.timeline.shots[0].video).toBeUndefined()
-    expect(r.notes.join(' ')).toMatch(/no clip/)
+  it('shows a beat\'s on-screen text at the top of its shot', () => {
+    const r = buildTimeline(input())
+    expect(r.timeline.shots[2].text).toEqual([expect.objectContaining({ text: 'Oops', position: 'top' })])
+    expect(r.timeline.shots[0].text).toEqual([])
+  })
+})
+
+describe('transitions and sound', () => {
+  it('cuts into the first shot and between two dialogue shots, and uses the style\'s energetic transition for action', () => {
+    expect(pickTransition(0, 'dialogue', null, ['fade', 'slideleft'])).toBe('cut')
+    expect(pickTransition(2, 'dialogue', 'dialogue', ['fade', 'slideleft'])).toBe('cut')
+    expect(pickTransition(2, 'action', 'dialogue', ['fade', 'slideleft'])).toBe('slideleft')
+    expect(pickTransition(1, 'establishing', 'action', [])).toBe('cut') // a style with none allowed
+    expect(pickTransition(1, 'subtle', 'action', ['fade', 'slideleft'])).not.toBe('cut')
   })
 
-  it('a hop shot uses crouch, air and a thud; a walk shot uses the walk cycle', () => {
-    const hop = buildTimeline(base({ shots: [shot(1, 'action', { description: 'Mango jumps in fright' })] as BuildInput['shots'], script: { title: 't', hook: 'h', payoff: 'p', beats: [beat(1, null, null)] }, speech: {} }))
-    const hopLayer = hop.timeline.shots[0].layers.find((l) => l.kind === 'character') as Record<string, any>
-    expect(hopLayer.frames.map((f: { src: string }) => f.src)).toEqual(expect.arrayContaining(['Mango-crouch.png', 'Mango-air.png']))
-    expect(hop.timeline.sfx!.some((s) => s.src === 'thud.wav')).toBe(true)
-    const walk = buildTimeline(base({ shots: [shot(1, 'action', { description: 'Mango walks into the kitchen' })] as BuildInput['shots'], script: { title: 't', hook: 'h', payoff: 'p', beats: [beat(1, null, null)] }, speech: {} }))
-    const walkLayer = walk.timeline.shots[0].layers.find((l) => l.kind === 'character') as Record<string, any>
-    expect(walkLayer.cycle.frames).toEqual(['Mango-wa.png', 'Mango-wb.png'])
+  it('only uses transitions the style allows, and adds a whoosh where the picture slides', () => {
+    const r = buildTimeline(input({ transitions: ['slideleft'] }))
+    const used = new Set(r.timeline.shots.map((s) => s.transitionIn))
+    for (const t of used) expect(['cut', 'slideleft']).toContain(t)
+    const slides = r.timeline.shots.filter((s) => s.transitionIn === 'slideleft').length
+    expect(r.timeline.sfx).toHaveLength(slides)
+    for (const x of r.timeline.sfx) expect(x.src).toBe('sfx-whoosh.wav')
+    // a whoosh lands just before the shot it introduces
+    expect(r.timeline.sfx[0].startSec).toBeLessThan(r.shotStarts[r.timeline.shots.findIndex((s) => s.transitionIn === 'slideleft')])
   })
 
-  it('a reaction shot shows the emotion bust matching the line', () => {
-    const r = buildTimeline(base({
-      script: { title: 't', hook: 'h', payoff: 'p', beats: [beat(1, null, null, { emotion: 'smug' })] },
-      shots: [shot(1, 'reaction')] as BuildInput['shots'], speech: {},
-    }))
-    const c = r.timeline.shots[0].layers.find((l) => l.kind === 'character') as Record<string, any>
-    expect(c.frames[0].src).toBe('Mango-smug.png')
+  it('passes the style\'s look to the assembler', () => {
+    const look = { gradeFilter: 'eq=saturation=1.2', grain: 0.1, vignette: 0.2, caption: { font: 'Fredoka', size: 0.05, primary: '#FFFFFF', highlight: '#FF0000', outline: '#000000', bold: true, uppercase: true, position: 'bottom' as const } }
+    const r = buildTimeline(input({ look }))
+    expect(r.timeline.look.gradeFilter).toBe('eq=saturation=1.2')
+    expect(r.timeline.look.caption.highlight).toBe('#FF0000')
+  })
+})
+
+describe('fitting the format', () => {
+  const plain = (n: number, dur: number) => {
+    const script: Script = { title: 't', hook: 'h', payoff: 'p', supportingCast: [], beats: Array.from({ length: n }, (_, i) => beat(i + 1)) }
+    return { script, shots: Array.from({ length: n }, (_, i) => shot(i + 1, 'subtle', { durationSec: dur })), speech: {}, clips: Object.fromEntries(Array.from({ length: n }, (_, i) => [i + 1, { file: `c${i + 1}.mp4`, seconds: 5 }])), sfx: { whoosh: 'w.wav' } } satisfies BuildInput
+  }
+  const total = (r: ReturnType<typeof buildTimeline>) => r.timeline.shots.reduce((n, s) => n + s.durationSec, 0)
+
+  it('shortens the shots evenly when the reel runs over its format', () => {
+    const r = buildTimeline({ ...plain(4, 5), targetSec: 15 })
+    expect(total(r)).toBeCloseTo(15, 1)
+    expect(r.durationSec).toBeCloseTo(total(r), 1)
+    for (const s of r.timeline.shots) expect(s.durationSec).toBeCloseTo(3.75, 1)
   })
 
-  it('uses the fallback plate when a shot has none, and reports a missing kit', () => {
-    const r = buildTimeline(base({ kits: {}, plates: {}, shots: [shot(1, 'reaction')] as BuildInput['shots'], script: { title: 't', hook: 'h', payoff: 'p', beats: [beat(1, null, null)] }, speech: {} }))
-    expect(r.timeline.shots[0].background).toBe('plate-fallback.png')
-    expect(r.notes.join(' ')).toMatch(/no character kit/)
+  it('leaves a reel alone when it is within half a second of the format, and when there is no format', () => {
+    expect(total(buildTimeline({ ...plain(4, 5), targetSec: 19.8 }))).toBeCloseTo(20, 5)
+    expect(total(buildTimeline(plain(4, 5)))).toBeCloseTo(20, 5)
   })
 
-  it('maps emotions and spreads blinks', () => {
-    expect(emotionBust('Smug and proud')).toBe('smug')
-    expect(emotionBust('terrified')).toBe('surprised')
-    expect(emotionBust('joyful')).toBe('happy')
-    expect(emotionBust('nervous')).toBe('surprised')
-    expect(emotionBust(null)).toBe('happy')
-    const t = blinkTimes(6, 1)
-    expect(t.length).toBeGreaterThan(1)
-    expect(blinkTimes(6, 1)).not.toEqual(blinkTimes(6, 2))
-    expect(blinkTimes(0.5, 1)).toEqual([])
+  it('never shortens a shot below the time its spoken line needs, and takes the rest from the other shots', () => {
+    const b = plain(4, 5)
+    b.script.beats[0] = beat(1, { speaker: 'Mango', line: 'Trust me this will work I promise' })
+    b.speech = { 1: speechInfoFrom('l1.wav', 3, words('Trust me this will work I promise', 3)) }
+    const r = buildTimeline({ ...b, targetSec: 15 })
+    expect(r.timeline.shots[0].durationSec).toBeGreaterThanOrEqual(voiceNeedSec(3) - 0.01)
+    expect(total(r)).toBeLessThan(15.6)
+    expect(r.timeline.shots[1].durationSec).toBeLessThan(r.timeline.shots[0].durationSec + 0.01 + 5)
+    // the line still ends inside its shot
+    expect(r.timeline.voices[0].startSec + 3).toBeLessThanOrEqual(r.timeline.shots[0].durationSec + 0.01)
+  })
+
+  it('keeps the voices and captions in step with the shortened shots', () => {
+    const b = plain(4, 5)
+    b.script.beats[2] = beat(3, { speaker: 'Luna', line: 'It did not' })
+    b.speech = { 3: speechInfoFrom('l3.wav', 1.2, words('It did not', 1.2)) }
+    const r = buildTimeline({ ...b, targetSec: 12 })
+    const start3 = r.shotStarts[2]
+    expect(r.timeline.voices[0].startSec).toBeGreaterThanOrEqual(start3 + 0.29)
+    expect(r.timeline.captions[0].startSec).toBeCloseTo(r.timeline.voices[0].startSec, 2)
+  })
+
+  it('says so when the shots cannot be shortened enough', () => {
+    const r = buildTimeline({ ...plain(4, 1.6), targetSec: 3 })
+    expect(total(r)).toBeGreaterThan(4)
+    expect(r.notes.join(' ')).toMatch(/longer than its 3s format/)
   })
 })

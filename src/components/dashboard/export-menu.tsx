@@ -6,7 +6,10 @@ import { ASPECTS, ASPECT_LABEL, sizeFor, type Aspect } from '@/engine/aspect'
 export type ExportInfo = Partial<Record<Aspect, { status: 'rendering' | 'ready' | 'failed'; error?: string }>>
 
 /** Export one episode in another aspect ratio. The main format is the video itself; the others are rendered on request. */
-export function ExportMenu({ episodeId, main, tier, initial }: { episodeId: number | string; main: string; tier: string; initial: ExportInfo }) {
+/** Every video is made vertical, so the main format is fixed. */
+const MAIN: Aspect = '9:16'
+
+export function ExportMenu({ episodeId, initial }: { episodeId: number | string; initial: ExportInfo }) {
   const [open, setOpen] = useState(false)
   const [info, setInfo] = useState<ExportInfo>(initial)
   const [err, setErr] = useState('')
@@ -40,8 +43,8 @@ export function ExportMenu({ episodeId, main, tier, initial }: { episodeId: numb
         <div className="absolute left-0 z-10 mt-2 w-72 rounded-xl border border-border bg-card p-2 shadow-xl">
           {ASPECTS.map((a) => {
             const e = info[a]
-            const { width, height } = sizeFor(a, tier)
-            const isMain = a === main
+            const { width, height } = sizeFor(a)
+            const isMain = a === MAIN
             const ready = isMain || e?.status === 'ready'
             return (
               <div key={a} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm">

@@ -1,28 +1,88 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loader2, Lock, Play, Sparkles } from 'lucide-react'
-import { FREQUENCY_LABEL, formatCountdown, nextState, type Frequency } from '@/lib/schedule'
+import { formatCountdown } from '@/lib/daily-limit'
 
-export function NextEpisodeCard({ frequency, lastEpisodeAt, onGenerate, busy }: { frequency: Frequency; lastEpisodeAt: string | null; onGenerate: () => void; busy: boolean }) {
-  const last = lastEpisodeAt ? new Date(lastEpisodeAt) : null
-  const [now, setNow] = useState<Date | null>(null)
-  useEffect(() => { setNow(new Date()); const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t) }, [])
-  const s = now ? nextState(frequency, last, now) : null
-  const locked = s?.state === 'locked'
+/** The Generate card. `left` / `limit` / `nextAt` come from the server (the daily limit, plan R1-C); the countdown runs here. */
+export function NextEpisodeCard({
+  left,
+  limit,
+  nextAt,
+  onGenerate,
+  onUnlocked,
+  busy,
+}: {
+  left: number
+  limit: number
+  nextAt: string | null
+  onGenerate: () => void
+  onUnlocked: () => void
+  busy: boolean
+}) {
+  const nextMs = nextAt ? new Date(nextAt).getTime() : null
+  const [now, setNow] = useState<number | null>(null)
+  useEffect(() => {
+    const tick = () => setNow(Date.now())
+    const first = setTimeout(tick, 0)
+    const t = setInterval(tick, 1000)
+    return () => {
+      clearTimeout(first)
+      clearInterval(t)
+    }
+  }, [])
+
+  const remainingMs = now !== null && nextMs !== null ? nextMs - now : null
+  // when the countdown reaches zero a slot has opened up, even before the page has asked the server again
+  const opened = remainingMs !== null && remainingMs <= 0
+  const leftNow = left > 0 ? left : opened ? 1 : 0
+  const locked = leftNow === 0
+
+  const told = useRef(false)
+  useEffect(() => {
+    if (left > 0 || !opened || told.current) return
+    told.current = true
+    onUnlocked()
+  }, [left, opened, onUnlocked])
 
   return (
-    <div className={`relative flex aspect-[9/16] max-h-80 flex-col items-center justify-center gap-3 overflow-hidden rounded-[var(--radius)] border p-5 text-center ${locked ? 'border-dashed border-border bg-card/50' : 'border-accent bg-card'}`}>
-      <div className={`grid size-12 place-items-center rounded-full ${locked ? 'bg-muted text-muted-foreground' : 'bg-accent text-accent-foreground'}`}>
+    <div
+      className={`relative flex aspect-[9/16] max-h-80 flex-col items-center justify-center gap-3 overflow-hidden rounded-[var(--radius)] border p-5 text-center ${locked ? 'border-dashed border-border bg-card/50' : 'border-accent bg-card'}`}
+    >
+      <div
+        className={`grid size-12 place-items-center rounded-full ${locked ? 'bg-muted text-muted-foreground' : 'bg-accent text-accent-foreground'}`}
+      >
         {locked ? <Lock className="size-5" /> : <Sparkles className="size-5" />}
       </div>
-      <div className="font-heading font-semibold">{s?.state === 'first' ? 'First episode' : locked ? 'Next episode' : 'Ready to generate'}</div>
-      <p className="text-xs text-muted-foreground">
-        {locked && s ? <>Unlocks in <span className="font-mono text-foreground">{formatCountdown(s.remainingMs)}</span><br />Posting {FREQUENCY_LABEL[frequency]}</> : `Posting ${FREQUENCY_LABEL[frequency]}`}
+      <div className="font-heading font-semibold">
+        {locked ? 'Daily limit reached' : 'Generate a video'}
+      </div>
+      <p className="text-xs text-muted-foreground" aria-live="polite">
+        {locked ? (
+          <>
+            Next video available in{' '}
+            <span className="font-mono text-foreground">
+              {remainingMs !== null ? formatCountdown(remainingMs) : '…'}
+            </span>
+          </>
+        ) : (
+          `${leftNow} of ${limit} videos left today`
+        )}
       </p>
-      <button onClick={onGenerate} disabled={busy || !s || locked} className="flex items-center gap-2 rounded-full bg-accent px-4 py-1.5 text-sm text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50">
-        {busy ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} Generate
+      <button
+        onClick={onGenerate}
+        disabled={busy || locked}
+        className="flex items-center gap-2 rounded-full bg-accent px-4 py-1.5 text-sm text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {busy ? (
+          <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
+        ) : (
+          <Play className="size-4" />
+        )}{' '}
+        Generate
       </button>
-      {locked && <p className="text-[11px] text-muted-foreground">Unlocks automatically; when deployed it generates by itself.</p>}
+      <p className="text-[11px] text-muted-foreground">
+        {limit} videos a day across all your series.
+      </p>
     </div>
   )
 }

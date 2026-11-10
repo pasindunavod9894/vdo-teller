@@ -1,4 +1,5 @@
 import { generateClip, generateMockClip, type ClipRequest, type ClipResult } from './fal'
+import { generateLipsync, generateMockLipsync, type LipsyncRequest, type LipsyncResult } from './lipsync'
 
 export type VideoProviderName = 'fal' | 'mock'
 
@@ -11,5 +12,12 @@ export async function makeClip(req: ClipRequest): Promise<ClipResult> {
   return videoProvider() === 'fal' ? generateClip(req) : generateMockClip(req)
 }
 
+/** Lip-syncs a dialogue clip with the same provider switch as the clips themselves. */
+export async function makeLipsync(req: LipsyncRequest): Promise<LipsyncResult> {
+  return videoProvider() === 'fal' ? generateLipsync(req) : generateMockLipsync(req)
+}
+
 export { generateClip, generateMockClip } from './fal'
+export { generateLipsync, generateMockLipsync } from './lipsync'
+export type { LipsyncRequest, LipsyncResult } from './lipsync'
 export type { ClipRequest, ClipResult } from './fal'

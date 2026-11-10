@@ -1,19 +1,19 @@
 export type StepKey =
-  | 'orchestrator-plan' | 'showrunner' | 'writer' | 'critic' | 'art-director' | 'animator' | 'editor-qa' | 'publisher' | 'orchestrator-final'
+  | 'orchestrator-plan' | 'creator' | 'story-builder' | 'style' | 'art-director' | 'editor-clips' | 'editor-assemble' | 'publisher' | 'orchestrator-final'
 
 export type StepDef = { key: StepKey; agent: string; label: string }
 
 // Fixed order (plan §3): a workflow, not an LLM, decides the order so progress, retries and cost limits are predictable.
 export const STEPS: StepDef[] = [
-  { key: 'orchestrator-plan', agent: 'Orchestrator', label: 'Planning the episode' },
-  { key: 'showrunner', agent: 'Showrunner', label: 'Choosing the episode idea' },
-  { key: 'writer', agent: 'Writer', label: 'Writing the script' },
-  { key: 'critic', agent: 'Critic', label: 'Reviewing the script' },
-  { key: 'art-director', agent: 'Art Director', label: 'Planning the shots' },
-  { key: 'animator', agent: 'Animator', label: 'Building the timeline and voices' },
-  { key: 'editor-qa', agent: 'Editor-QA', label: 'Checking quality' },
-  { key: 'publisher', agent: 'Publisher', label: 'Writing title and caption' },
-  { key: 'orchestrator-final', agent: 'Orchestrator', label: 'Assembling the final episode' },
+  { key: 'orchestrator-plan', agent: 'Orchestrator', label: 'Planning the video' },
+  { key: 'creator', agent: 'Creator', label: 'Finding the idea' },
+  { key: 'story-builder', agent: 'Story Builder', label: 'Writing and reviewing the story' },
+  { key: 'style', agent: 'Style', label: 'Setting the look of this video' },
+  { key: 'art-director', agent: 'Art Director', label: 'Planning the shots and the keyframes' },
+  { key: 'editor-clips', agent: 'Editor', label: 'Making the clips and the voices' },
+  { key: 'editor-assemble', agent: 'Editor', label: 'Putting it together and checking it' },
+  { key: 'publisher', agent: 'Publisher', label: 'Writing the title and caption' },
+  { key: 'orchestrator-final', agent: 'Orchestrator', label: 'Finishing the video' },
 ]
 
 export const MAX_REVISION_ROUNDS = 3

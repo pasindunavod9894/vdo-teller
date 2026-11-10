@@ -3,7 +3,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 
 /**
- * Where an episode's files live. `assetsDir` is served to Remotion; `libraryDir` persists per series (plates, kits) so a
+ * Where an episode's files live. `assetsDir` holds every file the assembler reads; `libraryDir` persists per series (plates, kits) so a
  * recurring location or character is made once and reused by every later episode.
  */
 export type Workspace = { episodeDir: string; assetsDir: string; clipsDir: string; outDir: string; libraryDir: string }

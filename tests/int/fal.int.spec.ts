@@ -3,7 +3,9 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import sharp from 'sharp'
+import { placeholderPng } from '@/media/placeholder'
+import { generateLipsync, generateMockLipsync } from '@/providers/video/lipsync'
+import { makeLipsync } from '@/providers/video'
 import { classifyFalError, generateClip, generateMockClip, probeDuration, VideoError, type FalLike } from '@/providers/video/fal'
 import { makeClip, videoProvider } from '@/providers/video'
 
@@ -14,7 +16,7 @@ let mp4 = Buffer.alloc(0)
 beforeAll(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fal-'))
   still = path.join(dir, 'still.png')
-  await sharp({ create: { width: 540, height: 960, channels: 3, background: '#c97' } }).png().toFile(still)
+  await placeholderPng(still, { width: 540, height: 960, colour: '0xcc9977', shape: 'character' })
   const tiny = path.join(dir, 'tiny.mp4')
   execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=64x64:d=1', '-pix_fmt', 'yuv420p', tiny])
   mp4 = fs.readFileSync(tiny)
@@ -145,4 +147,46 @@ describe('free mock provider', () => {
     expect(r.mock).toBe(true)
     if (k) process.env.FAL_KEY = k
   }, 30000)
+})
+
+describe('end frame (used by the continuity retry)', () => {
+  it('pins the clip to a tail image on the model that supports it, and leaves it out on the one that does not', async () => {
+    const pro = fakeClient()
+    await generateClip({ model: 'kling-2.5-turbo', imageFile: still, tailImageFile: still, prompt: 'The cat waves.', seconds: 5, destFile: path.join(dir, 'tail-pro.mp4'), client: pro.client, fetchImpl: okFetch })
+    expect(pro.calls[0].input.tail_image_url).toBe('https://fal.test/uploaded.png')
+    const std = fakeClient()
+    await generateClip({ model: 'kling-2.5-turbo-standard', imageFile: still, tailImageFile: still, prompt: 'The cat waves.', seconds: 5, destFile: path.join(dir, 'tail-std.mp4'), client: std.client, fetchImpl: okFetch })
+    expect(std.calls[0].endpoint).toBe('fal-ai/kling-video/v2.5-turbo/standard/image-to-video')
+    expect(std.calls[0].input.tail_image_url).toBeUndefined()
+    expect(std.calls[0].input.image_url).toBe('https://fal.test/uploaded.png')
+  })
+})
+
+describe('lip-sync (fal.ai)', () => {
+  const wav = () => { const f = path.join(dir, 'line.wav'); execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=1', f]); return f }
+  const clip = () => { const f = path.join(dir, 'clip-for-lip.mp4'); fs.writeFileSync(f, mp4); return f }
+
+  it('uploads the clip and the line, calls the lip-sync endpoint, downloads the result and prices it by the clip length', async () => {
+    const { client, calls } = fakeClient()
+    const dest = path.join(dir, 'lip.mp4')
+    const r = await generateLipsync({ videoFile: clip(), audioFile: wav(), destFile: dest, client, fetchImpl: okFetch })
+    expect(calls[0].endpoint).toBe('fal-ai/sync-lipsync/v2')
+    expect(calls[0].input).toMatchObject({ video_url: 'https://fal.test/uploaded.png', audio_url: 'https://fal.test/uploaded.png', sync_mode: 'cut_off' })
+    expect(fs.existsSync(dest)).toBe(true)
+    expect(r.costUsd).toBeCloseTo(0.05, 2) // the 1 s test clip at $0.05 per second
+  })
+
+  it('maps a failing request to an error the pipeline can read', async () => {
+    const { client } = fakeClient({ subscribe: vi.fn(async () => { throw Object.assign(new Error('bad'), { status: 400 }) }) })
+    await expect(generateLipsync({ videoFile: clip(), audioFile: wav(), destFile: path.join(dir, 'x.mp4'), client, fetchImpl: okFetch })).rejects.toMatchObject({ kind: 'invalid' })
+  })
+
+  it('is free in mock mode: the clip comes back unchanged', async () => {
+    const dest = path.join(dir, 'lip-mock.mp4')
+    const r = await generateMockLipsync({ videoFile: clip(), audioFile: wav(), destFile: dest })
+    expect(r.costUsd).toBe(0)
+    expect(fs.readFileSync(dest).equals(mp4)).toBe(true)
+    delete process.env.VIDEO_PROVIDER
+    expect((await makeLipsync({ videoFile: clip(), audioFile: wav(), destFile: path.join(dir, 'lip-mock2.mp4') })).mock).toBe(true)
+  })
 })

@@ -1,28 +1,14 @@
-import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import { probe, run as ffmpeg } from './ffmpeg'
 
-function ffmpeg(args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const p = spawn('ffmpeg', args)
-    let err = ''
-    p.stderr.on('data', (c) => { err += c })
-    p.on('error', reject)
-    p.on('close', (code) => (code === 0 ? resolve(err) : reject(new Error(`ffmpeg failed: ${err.slice(-300)}`))))
-  })
-}
 
 export type Loudness = { integrated: number; truePeak: number }
 
 /** Duration in seconds of the video stream of a file. */
-export function videoSeconds(file: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const p = spawn('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=duration', '-of', 'csv=p=0', file])
-    let out = ''
-    p.stdout.on('data', (c) => { out += c })
-    p.on('error', reject)
-    // ffprobe's csv output can carry a trailing comma ("10.000000,") for some files, e.g. ones joined from chunks
-    p.on('close', (code) => { const d = parseFloat(out.trim()); code === 0 && Number.isFinite(d) && d > 0 ? resolve(d) : reject(new Error('Could not read the video duration')) })
-  })
+export async function videoSeconds(file: string): Promise<number> {
+  const d = (await probe(file)).videoSec
+  if (!(d > 0)) throw new Error('Could not read the video duration')
+  return d
 }
 
 /** Measures integrated loudness (LUFS) and true peak (dBTP) with the EBU R128 filter. */

@@ -6,10 +6,13 @@ import config from '@payload-config'
 import type { z } from 'zod'
 import { MODELS, REASONING } from '@/agents/models'
 import { STYLE_CATALOGUE } from '@/lib/styles/catalogue'
+import { writeStyleBible } from '@/agents/style'
+import { proposeCastOptions, type CastOptionsResult } from '@/lib/art/cast-options'
+import { withExpressions, type StyleBible } from '@/lib/styles/bible'
 import type { OptionsPayload } from './service-types'
 import { OptionsSchema, SubNichesSchema, type OptionsResult, type SubNichesResult } from './schemas'
 import {
-  charactersFor, formatsFor, FREQUENCIES, stylesFor, subNichesFor, voicesFor,
+  charactersFor, stylesFor, subNichesFor, voicesFor,
   type StyleOption, type SubNiche, type VoiceOption,
 } from '@/lib/wizard/mock-data'
 
@@ -35,20 +38,29 @@ function key(kind: string, niche: string, sub = '') {
   return `${kind}:${niche.toLowerCase()}:${sub.toLowerCase()}`
 }
 
+/** The research cache is only a saving: if the database is unavailable the answer is simply made again, never an error for the user. */
 async function readCache<T>(k: string): Promise<T | null> {
-  const payload = await getPayload({ config })
-  const { docs } = await payload.find({ collection: 'niche-research-cache', where: { key: { equals: k } }, limit: 1, overrideAccess: true })
-  const hit = docs[0]
-  if (hit && new Date(hit.expiresAt).getTime() > Date.now()) return hit.data as T
+  try {
+    const payload = await getPayload({ config })
+    const { docs } = await payload.find({ collection: 'niche-research-cache', where: { key: { equals: k } }, limit: 1, overrideAccess: true })
+    const hit = docs[0]
+    if (hit && new Date(hit.expiresAt).getTime() > Date.now()) return hit.data as T
+  } catch (e) {
+    console.error('[research] cache read failed, continuing without it:', e instanceof Error ? e.message.slice(0, 120) : e)
+  }
   return null
 }
 
 async function writeCache(k: string, data: unknown) {
-  const payload = await getPayload({ config })
-  const expiresAt = new Date(Date.now() + TTL_MS).toISOString()
-  const { docs } = await payload.find({ collection: 'niche-research-cache', where: { key: { equals: k } }, limit: 1, overrideAccess: true })
-  if (docs[0]) await payload.update({ collection: 'niche-research-cache', id: docs[0].id, data: { data: data as Record<string, unknown>, expiresAt }, overrideAccess: true })
-  else await payload.create({ collection: 'niche-research-cache', data: { key: k, data: data as Record<string, unknown>, expiresAt }, overrideAccess: true })
+  try {
+    const payload = await getPayload({ config })
+    const expiresAt = new Date(Date.now() + TTL_MS).toISOString()
+    const { docs } = await payload.find({ collection: 'niche-research-cache', where: { key: { equals: k } }, limit: 1, overrideAccess: true })
+    if (docs[0]) await payload.update({ collection: 'niche-research-cache', id: docs[0].id, data: { data: data as Record<string, unknown>, expiresAt }, overrideAccess: true })
+    else await payload.create({ collection: 'niche-research-cache', data: { key: k, data: data as Record<string, unknown>, expiresAt }, overrideAccess: true })
+  } catch (e) {
+    console.error('[research] cache write failed, continuing without it:', e instanceof Error ? e.message.slice(0, 120) : e)
+  }
 }
 
 let client: OpenAI | null = null
@@ -100,27 +112,27 @@ export async function researchSubNiches(rawNiche: string): Promise<Sourced<{ sub
 export type { OptionsPayload }
 
 function mockOptions(niche: string): OptionsPayload {
-  return { styles: stylesFor(niche), voices: voicesFor(niche), formats: formatsFor(), characters: charactersFor(niche), frequencies: FREQUENCIES }
+  return { styles: stylesFor(niche), voices: voicesFor(niche), characters: charactersFor(niche) }
 }
 
 export async function researchOptions(rawNiche: string, rawSub: string): Promise<Sourced<OptionsPayload>> {
   const niche = cleanNiche(rawNiche)
   const sub = cleanNiche(rawSub)
   if (!hasOpenAI()) return { ...mockOptions(niche), source: 'mock' }
-  const k = key('options', niche, sub)
+  const k = key('options-r2', niche, sub) // r2: the format options changed to 10 / 15 / 30 s, so answers cached before that must not be reused
   const cached = await readCache<OptionsPayload>(k)
   if (cached) return { ...cached, source: 'ai' }
   try {
     const out: OptionsResult = await ask(
       OptionsSchema, 'wizard_options',
-      `For this series, rate EVERY style and EVERY voice mode, suggest the best format, 3 original casts and the best posting frequency.\n<topic>${niche}</topic>\n<subniche>${sub || 'general'}</subniche>`,
+      `For this series, rate EVERY style and EVERY voice mode and propose 3 original casts.\n<topic>${niche}</topic>\n<subniche>${sub || 'general'}</subniche>`,
       true,
     )
     const order = { recommended: 0, suitable: 1, not_suitable: 2 }
     const styles: StyleOption[] = out.styles
       .map((s) => {
         const c = STYLE_CATALOGUE.find((x) => x.id === s.id)!
-        return { id: c.id, name: c.name, look: c.look, engineFit: c.engineFit, status: s.status, why: s.why }
+        return { id: c.id, name: c.name, look: c.look, status: s.status, why: s.why }
       })
       .sort((a, b) => order[a.status] - order[b.status])
     const voiceDefs = voicesFor(niche)
@@ -128,13 +140,43 @@ export async function researchOptions(rawNiche: string, rawSub: string): Promise
       const m = out.voices.find((v) => v.id === d.id)
       return m ? { ...d, status: m.status, why: m.why } : d
     })
-    const formats = formatsFor().map((f) => ({ ...f, recommended: f.id === out.recommendedFormat }))
-    const frequencies = FREQUENCIES.map((f) => ({ ...f, recommended: f.id === out.recommendedFrequency }))
-    const data: OptionsPayload = { styles, voices, formats, characters: out.characters, frequencies }
+    const data: OptionsPayload = { styles, voices, characters: out.characters }
     await writeCache(k, data)
     return { ...data, source: 'ai' }
   } catch (err) {
     console.error('[research] options failed, using mock:', err instanceof Error ? err.message : err)
     return { ...mockOptions(niche), source: 'mock' }
   }
+}
+
+/** The series' style bible for a niche + style, written by the Style agent and cached (shared between users) like the other research. */
+export async function researchStyleBible(rawNiche: string, rawSub: string, styleId: string): Promise<{ bible: StyleBible; source: 'ai' | 'mock' }> {
+  const niche = cleanNiche(rawNiche)
+  const sub = cleanNiche(rawSub)
+  const k = key(`style-bible:${styleId}`, niche, sub)
+  const cached = await readCache<StyleBible>(k)
+  // a bible cached before the extra expressions existed gets them from the niche's vibes (no model call)
+  if (cached) return { bible: withExpressions(cached, niche, sub), source: 'ai' }
+  const out = await writeStyleBible({ niche, subNiche: sub || undefined, styleId })
+  // a catalogue fallback is not cached, so the next try can still reach the Style agent
+  if (out.source === 'ai') await writeCache(k, out.bible)
+  return { bible: out.bible, source: out.source }
+}
+
+/**
+ * Three cast options for a niche + style (plan R1-B), each with a group portrait, cached and shared like the other research.
+ * `force` makes new options (the wizard's "Regenerate options" button) and replaces the cached ones.
+ */
+export async function researchCastOptions(rawNiche: string, rawSub: string, styleId: string, force = false): Promise<CastOptionsResult> {
+  const niche = cleanNiche(rawNiche)
+  const sub = cleanNiche(rawSub)
+  const k = key(`cast-options:${styleId}`, niche, sub)
+  if (!force) {
+    const cached = await readCache<CastOptionsResult>(k)
+    if (cached) return { ...cached, costUsd: 0 }
+  }
+  const { bible } = await researchStyleBible(niche, sub, styleId)
+  const out = await proposeCastOptions({ niche, subNiche: sub || undefined, styleId, bible })
+  if (out.source === 'ai') await writeCache(k, out)
+  return out
 }

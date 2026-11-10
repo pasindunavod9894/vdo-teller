@@ -194,7 +194,22 @@ export interface Series {
     | number
     | boolean
     | null;
-  format: 'story-reel' | 'quick-reel' | 'long-form';
+  /**
+   * The Style agent's visual recipe for this series: palette, lighting, motion, grade, captions, transitions.
+   */
+  styleBible?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Not used: every video is 25 to 30 seconds.
+   */
+  format: '10' | '15' | '30' | 'story-reel' | 'quick-reel' | 'long-form';
   voiceMode: 'none' | 'narrator' | 'character_voices' | 'narrator_and_characters';
   voiceApplicability?:
     | {
@@ -214,8 +229,6 @@ export interface Series {
     | number
     | boolean
     | null;
-  frequency: 'daily' | 'every-2-days' | '3-per-week' | 'weekly';
-  qualityTier: 'budget' | 'standard' | 'premium';
   aspect: '9:16' | '16:9' | '1:1' | '4:5';
   theme?:
     | {
@@ -229,17 +242,36 @@ export interface Series {
   heroImage?: (number | null) | Media;
   folderLinked?: boolean | null;
   status: 'draft' | 'active' | 'paused' | 'removed';
+  /**
+   * Most this series may spend in USD. A reel costs about 3 to 6.
+   */
   costCapUsd?: number | null;
   spentUsd?: number | null;
   /**
    * Video model used for real-motion shots (switchable per niche).
    */
-  videoModel: 'kling-2.5-turbo';
+  videoModel: 'kling-2.5-turbo' | 'kling-2.5-turbo-standard';
   /**
-   * Optional hard limit on total real-video seconds for this series. Empty = limited only by the tier and the cost cap.
+   * Optional hard limit on total video seconds for this series. Empty = limited only by the cost cap.
    */
   videoBudgetSec?: number | null;
   videoSpentSec?: number | null;
+  /**
+   * What the series remembers from earlier videos: recent ideas, running gags and recurring characters. Updated automatically.
+   */
+  memory?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Pause after the script and keyframes so you can approve before any video clip is paid for.
+   */
+  reviewBeforeVideo?: boolean | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -277,6 +309,14 @@ export interface Character {
     instructions?: string | null;
   };
   referenceImages?: (number | Media)[] | null;
+  /**
+   * A finished reference pack is locked: every reel uses exactly these images. "Edit character" opens it again.
+   */
+  locked?: boolean | null;
+  /**
+   * Goes up each time the reference pack is rebuilt and locked.
+   */
+  packVersion?: number | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -289,8 +329,32 @@ export interface Episode {
   owner: number | User;
   series: number | Series;
   title?: string | null;
-  status: 'queued' | 'running' | 'needs-review' | 'done' | 'failed';
+  status: 'queued' | 'running' | 'awaiting-approval' | 'needs-review' | 'done' | 'failed';
+  /**
+   * The three ideas the Creator proposed; the Story Builder picked one.
+   */
+  ideas?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   idea?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * The Style agent's notes for this reel: mood, time of day, weather, accent colour.
+   */
+  styleNotes?:
     | {
         [k: string]: unknown;
       }
@@ -373,6 +437,18 @@ export interface Episode {
     | number
     | boolean
     | null;
+  /**
+   * Shots the vision check of the finished video wants a person to look at: shot, kind, issue.
+   */
+  qaFlags?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   error?: string | null;
   mode?: string | null;
   scheduledFor?: string | null;
@@ -437,7 +513,7 @@ export interface AssetPack {
   character: number | Character;
   items?:
     | {
-        kind: 'pose' | 'emotion' | 'mouth' | 'face';
+        kind: 'expression' | 'pose' | 'emotion' | 'mouth' | 'face';
         name: string;
         image: number | Media;
         id?: string | null;
@@ -598,12 +674,11 @@ export interface SeriesSelect<T extends boolean = true> {
   subNiche?: T;
   style?: T;
   styleApplicability?: T;
+  styleBible?: T;
   format?: T;
   voiceMode?: T;
   voiceApplicability?: T;
   narratorVoice?: T;
-  frequency?: T;
-  qualityTier?: T;
   aspect?: T;
   theme?: T;
   heroImage?: T;
@@ -614,6 +689,8 @@ export interface SeriesSelect<T extends boolean = true> {
   videoModel?: T;
   videoBudgetSec?: T;
   videoSpentSec?: T;
+  memory?: T;
+  reviewBeforeVideo?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -638,6 +715,8 @@ export interface CharactersSelect<T extends boolean = true> {
         instructions?: T;
       };
   referenceImages?: T;
+  locked?: T;
+  packVersion?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -650,7 +729,9 @@ export interface EpisodesSelect<T extends boolean = true> {
   series?: T;
   title?: T;
   status?: T;
+  ideas?: T;
   idea?: T;
+  styleNotes?: T;
   script?: T;
   critique?: T;
   shots?: T;
@@ -660,6 +741,7 @@ export interface EpisodesSelect<T extends boolean = true> {
   costUsd?: T;
   videoCostUsd?: T;
   videoClips?: T;
+  qaFlags?: T;
   error?: T;
   mode?: T;
   scheduledFor?: T;

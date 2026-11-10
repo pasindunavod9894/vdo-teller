@@ -3,7 +3,13 @@
 const BRANDS = [
   'pixar', 'disney', 'dreamworks', 'illumination', 'ghibli', 'marvel', 'nintendo', 'pokemon', 'pokémon', 'sanrio', 'hello kitty',
   'looney tunes', 'tom and jerry', 'garfield', 'shrek', 'minions', 'netflix', 'youtube', 'tiktok',
+  // well-known characters, for names a person types. Only distinctive ones: a word people use every day (goofy, bluey) must never be on this list,
+  // because a description like "a goofy puppy" would be refused
+  'mickey mouse', 'minnie mouse', 'donald duck', 'winnie the pooh', 'spongebob', 'patrick star', 'pikachu', 'mario bros', 'super mario', 'luigi',
+  'sonic the hedgehog', 'peppa pig', 'paw patrol', 'spider-man', 'spiderman', 'batman', 'superman', 'wonder woman', 'iron man', 'harry potter',
+  'bugs bunny', 'daffy duck', 'scooby-doo', 'scooby doo', 'woody and buzz', 'buzz lightyear', 'mr. potato head', 'hello kitty',
 ]
+// substring match on purpose: brands glued into hashtags (#PixarStyle) must be caught too, so no entry may be an everyday word
 const BRAND_RE = new RegExp(`(?:${BRANDS.map((b) => b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi')
 
 export const hasBrand = (text: string) => { BRAND_RE.lastIndex = 0; return BRAND_RE.test(text) }

@@ -43,7 +43,7 @@ describe('synthesized sound effects', () => {
 })
 
 describe('audio mixer', () => {
-  const shots = [{ id: 's', durationSec: 6, background: 'x.png', camera: { move: 'static' as const, intensity: 0, handheld: 0 }, layers: [], transitionIn: 'cut' as const }]
+  const shots = [{ id: 's', clip: 'x.mp4', durationSec: 6, trimStartSec: 0, transitionIn: 'cut' as const, transitionSec: 0.3, text: [] }]
 
   it('puts each sound at its start time on one track of exactly the episode length', async () => {
     const voice = tone('voice.wav', 440, 1)

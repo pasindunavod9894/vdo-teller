@@ -3,14 +3,14 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import sharp from 'sharp'
-import type OpenAI from 'openai'
+import OpenAI from 'openai'
 import { createMockMedia, evenWords, SECONDS_PER_WORD } from '@/media/mock'
-import { createOpenAIMedia, SPEECH_USD_PER_MIN, WHISPER_USD_PER_MIN } from '@/media/openai'
+import { createOpenAIMedia, isConnectionError, SPEECH_USD_PER_MIN, WHISPER_USD_PER_MIN } from '@/media/openai'
 import { createMedia, mediaProvider } from '@/media'
 import { hashOf, openWorkspace, putAsset, safeName } from '@/media/workspace'
 import { probeDuration } from '@/providers/video/fal'
-import { rmsPerFrame } from '@/engine/lipsync'
+import { imageSize } from '@/engine/ffmpeg'
+import { placeholderPng } from '@/media/placeholder'
 
 let root = ''
 let wav = Buffer.alloc(0)
@@ -21,7 +21,9 @@ beforeAll(async () => {
   const w = path.join(root, 'tone.wav')
   execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=2', '-ar', '24000', '-ac', '1', w])
   wav = fs.readFileSync(w)
-  png = await sharp({ create: { width: 64, height: 96, channels: 3, background: '#c97' } }).png().toBuffer()
+  const p = path.join(root, 'pic.png')
+  await placeholderPng(p, { width: 64, height: 96, colour: '0xcc9977', shape: 'character' })
+  png = fs.readFileSync(p)
 })
 
 const dirs = (name: string) => {
@@ -52,8 +54,8 @@ describe('mock media (free)', () => {
     const media = createMockMedia(d)
     const a = await media.plate({ key: 'kitchen', prompt: 'x' })
     expect(a).toMatchObject({ file: 'plate-kitchen.png', costUsd: 0, cached: false })
-    const meta = await sharp(path.join(d.assetsDir, a.file)).metadata()
-    expect(meta.height!).toBeGreaterThan(meta.width!)
+    const meta = await imageSize(path.join(d.assetsDir, a.file))
+    expect(meta.height).toBeGreaterThan(meta.width)
     expect((await media.plate({ key: 'kitchen', prompt: 'x' })).cached).toBe(true)
     // a new episode of the same series reuses the library copy
     const ws2 = openWorkspace(2, 'm1', { episodes: path.join(root, 'ep'), series: path.join(root, 'se') })
@@ -69,9 +71,6 @@ describe('mock media (free)', () => {
     expect(r.words.map((w) => w.text)).toEqual(text.split(' '))
     expect(Math.abs(r.seconds - 8 * SECONDS_PER_WORD)).toBeLessThan(0.15)
     expect(await probeDuration(path.join(d.assetsDir, r.file))).toBeCloseTo(r.seconds, 1)
-    // loudness varies (syllable-like), so lip-sync has something to follow
-    const rms = await rmsPerFrame(path.join(d.assetsDir, r.file), 30)
-    expect(Math.max(...rms) / Math.max(1, Math.min(...rms.slice(2, -2)))).toBeGreaterThan(3)
     // the same words in the same voice come from cache (same file)
     expect((await media.speech({ name: 'line', text, voice: 'coral' })).file).toBe(r.file)
     expect((await media.speech({ name: 'line', text, voice: 'onyx' })).file).not.toBe(r.file)
@@ -87,6 +86,28 @@ describe('mock media (free)', () => {
 
   it('the quality gate passes without calling anything', async () => {
     expect(await createMockMedia(dirs('m3')).gate('nope.png', 'rules')).toMatchObject({ pass: true, costUsd: 0 })
+  })
+
+  it('makes a 720x1280 keyframe from references for free, deterministically', async () => {
+    const d = dirs('m4')
+    const media = createMockMedia(d)
+    const a = await media.keyframe({ key: 'ep1-shot-1-1', prompt: 'p', references: ['plate-x.png', 'mango-sheet.png'] })
+    const b = await media.keyframe({ key: 'ep1-shot-2-1', prompt: 'p', references: ['plate-x.png', 'luna-sheet.png'] })
+    expect(a.costUsd).toBe(0)
+    expect(await imageSize(path.join(d.assetsDir, a.file))).toEqual({ width: 720, height: 1280 })
+    expect(fs.readFileSync(path.join(d.assetsDir, a.file)).equals(fs.readFileSync(path.join(d.assetsDir, b.file)))).toBe(false)
+  })
+
+  it('makes a supporting-character reference once per series (a recurring character comes from the library)', async () => {
+    const d = dirs('m5')
+    expect(await createMockMedia(d).reference({ key: 'sup-grumpy-dog', prompt: 'p' })).toMatchObject({ cached: false, costUsd: 0, file: 'ref-sup-grumpy-dog.png' })
+    const ws2 = openWorkspace(2, 'm5', { episodes: path.join(root, 'ep'), series: path.join(root, 'se') })
+    expect((await createMockMedia({ assetsDir: ws2.assetsDir, libraryDir: ws2.libraryDir }).reference({ key: 'sup-grumpy-dog', prompt: 'p' })).cached).toBe(true)
+  })
+
+  it('the continuity check passes every character for free', async () => {
+    const r = await createMockMedia(dirs('m6')).continuity({ sheetFile: 'x.jpg', clipSeconds: 5, characters: [{ name: 'Mango', reference: 'm.png' }] })
+    expect(r).toMatchObject({ undeclaredCharacters: [], costUsd: 0, characters: [{ name: 'Mango', sameIdentity: 1, driftStartSec: null }] })
   })
 })
 
@@ -109,7 +130,10 @@ describe('provider choice', () => {
 function fakeOpenAI(over: Record<string, unknown> = {}) {
   const calls = { images: 0, speech: 0, transcribe: 0, gate: 0 }
   const client = {
-    images: { generate: vi.fn(async () => { calls.images++; return { data: [{ b64_json: png.toString('base64') }] } }) },
+    images: {
+      generate: vi.fn(async () => { calls.images++; return { data: [{ b64_json: png.toString('base64') }] } }),
+      edit: vi.fn(async () => { calls.images++; return { data: [{ b64_json: png.toString('base64') }] } }),
+    },
     audio: {
       speech: { create: vi.fn(async () => { calls.speech++; return new Response(new Uint8Array(wav)) }) },
       transcriptions: { create: vi.fn(async () => { calls.transcribe++; return { words: [{ word: 'Three', start: 0, end: 0.5 }, { word: 'minutes', start: 0.5, end: 1.2 }] } }) },
@@ -167,6 +191,33 @@ describe('OpenAI media (against a fake client: nothing is spent)', () => {
     expect(bad.client.images.generate).toHaveBeenCalledTimes(1)
   })
 
+  it('retries a dropped connection (no HTTP status) the way it retries a rate limit, and still gives up after 3 tries', async () => {
+    vi.useFakeTimers()
+    const d = dirs('o7'); let n = 0
+    const { client } = fakeOpenAI({ images: { generate: vi.fn(async () => { n++; if (n < 3) throw new OpenAI.APIConnectionError({ message: 'Connection error.' }); return { data: [{ b64_json: png.toString('base64') }] } }) } })
+    const pending = createOpenAIMedia({ ...d, client }).plate({ key: 'c', prompt: 'p' })
+    await vi.advanceTimersByTimeAsync(6000)
+    expect((await pending).costUsd).toBe(0.05)
+    expect(n).toBe(3) // two dropped connections, then the picture
+
+    let always = 0
+    const down = fakeOpenAI({ images: { generate: vi.fn(async () => { always++; throw new OpenAI.APIConnectionError({ message: 'Connection error.' }) }) } })
+    const failing = createOpenAIMedia({ ...dirs('o8'), client: down.client }).plate({ key: 'z', prompt: 'p' }).catch((e) => e)
+    await vi.advanceTimersByTimeAsync(6000)
+    expect((await failing).message).toMatch(/plate z failed: Connection error/)
+    expect(always).toBe(3)
+    vi.useRealTimers()
+  })
+
+  it('knows a connection error from a real answer', () => {
+    expect(isConnectionError(new OpenAI.APIConnectionError({ message: 'Connection error.' }))).toBe(true)
+    expect(isConnectionError(new Error('read ECONNRESET'))).toBe(true)
+    expect(isConnectionError(new Error('fetch failed'))).toBe(true)
+    expect(isConnectionError(Object.assign(new Error('invalid request'), { status: 400 }))).toBe(false)
+    expect(isConnectionError(Object.assign(new Error('Connection error.'), { status: 401 }))).toBe(false) // it got an answer
+    expect(isConnectionError(new Error('the image is not allowed'))).toBe(false)
+  })
+
   it('the quality gate returns the verdict and a real, small cost', async () => {
     const d = dirs('o6'); const { client } = fakeOpenAI()
     const f = path.join(d.assetsDir, 's.png'); fs.writeFileSync(f, png)
@@ -175,5 +226,52 @@ describe('OpenAI media (against a fake client: nothing is spent)', () => {
     expect(g.notes).toContain('stray text')
     expect(g.costUsd).toBeGreaterThan(0)
     expect(g.costUsd).toBeLessThan(0.01)
+  })
+})
+
+describe('OpenAI keyframes, references and continuity (fake client)', () => {
+  it('makes a keyframe with gpt-image-2 as an EDIT of the references, vertical, medium quality, charged once', async () => {
+    const d = dirs('k1'); const { client, calls } = fakeOpenAI()
+    fs.writeFileSync(path.join(d.assetsDir, 'plate.png'), png); fs.writeFileSync(path.join(d.assetsDir, 'sheet.png'), png)
+    const r = await createOpenAIMedia({ ...d, client }).keyframe({ key: 'ep9-shot-1-1', prompt: 'Mango waves', references: ['plate.png', 'sheet.png'] })
+    expect(r).toMatchObject({ file: 'keyframe-ep9-shot-1-1.png', costUsd: 0.05 })
+    expect(calls.images).toBe(1)
+    const args = (client.images.edit as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(args).toMatchObject({ model: 'gpt-image-2', size: '1024x1536', quality: 'medium', prompt: 'Mango waves' })
+    expect(Array.isArray(args.image) && args.image.length).toBe(2) // both references go to the model
+    expect(fs.existsSync(path.join(d.assetsDir, r.file))).toBe(true)
+  })
+
+  it('makes a supporting-character reference at high quality and serves a recurring one from the library for free', async () => {
+    const d = dirs('k2'); const { client } = fakeOpenAI()
+    const media = createOpenAIMedia({ ...d, client })
+    expect(await media.reference({ key: 'sup-owl', prompt: 'an owl' })).toMatchObject({ cached: false, costUsd: 0.17 })
+    expect(client.images.generate).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-image-2', size: '1024x1024', quality: 'high' }))
+    expect(await media.reference({ key: 'sup-owl', prompt: 'an owl' })).toMatchObject({ cached: true, costUsd: 0 })
+    expect(client.images.generate).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends the characters\' references with the keyframe to the quality gate', async () => {
+    const d = dirs('k3'); const { client } = fakeOpenAI()
+    const f = path.join(d.assetsDir, 'kf.png'); fs.writeFileSync(f, png)
+    const ref = path.join(d.assetsDir, 'ref.png'); fs.writeFileSync(ref, png)
+    await createOpenAIMedia({ ...d, client }).gate(f, 'rules', [{ name: 'Mango', file: ref }])
+    const input = (client.responses.parse as ReturnType<typeof vi.fn>).mock.calls[0][0].input[0].content as { type: string; text?: string }[]
+    expect(input.filter((c) => c.type === 'input_image')).toHaveLength(2) // the reference and the keyframe
+    expect(input.some((c) => c.text?.includes('Mango'))).toBe(true)
+  })
+
+  it('judges a clip: maps each named character, turns a drift fraction into seconds, and treats a missing character as unverified', async () => {
+    const d = dirs('k4')
+    const verdict = { characters: [{ name: 'Mango', sameIdentity: 0.9, driftStartFraction: 0.6, issues: ['fur turns white'] }], undeclaredCharacters: ['a stray dog'] }
+    const { client } = fakeOpenAI({ responses: { parse: vi.fn(async () => ({ output_parsed: verdict, usage: { input_tokens: 2000, output_tokens: 120, input_tokens_details: { cached_tokens: 0 } } })) } })
+    const sheet = path.join(d.assetsDir, 'sheet.jpg'); await placeholderPng(sheet, { width: 640, height: 128, colour: '0x336699', shape: 'scene' })
+    const ref = path.join(d.assetsDir, 'ref.png'); fs.writeFileSync(ref, png)
+    const r = await createOpenAIMedia({ ...d, client }).continuity({ sheetFile: sheet, clipSeconds: 5, characters: [{ name: 'Mango', reference: ref }, { name: 'Luna', reference: ref }] })
+    expect(r.characters[0]).toMatchObject({ name: 'Mango', sameIdentity: 0.9, driftStartSec: 3, issues: ['fur turns white'] })
+    expect(r.characters[1]).toMatchObject({ name: 'Luna', sameIdentity: 0, driftStartSec: 0 }) // not mentioned: not trusted
+    expect(r.undeclaredCharacters).toEqual(['a stray dog'])
+    expect(r.costUsd).toBeGreaterThan(0)
+    expect(r.costUsd).toBeLessThan(0.01)
   })
 })
